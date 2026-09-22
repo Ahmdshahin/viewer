@@ -23,11 +23,17 @@ echo    http://%HOST%:%PORT%
 echo   ============================================
 echo.
 
-REM ---- 1. Port already in use? ----
+REM ---- 1. Free the port: kill anything listening on %PORT% ----
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /R ":%PORT% .*LISTENING"') do (
+    echo [*] Killing PID %%P holding port %PORT% ...
+    taskkill /F /PID %%P >nul 2>&1
+)
+taskkill /IM uvicorn.exe /F >nul 2>&1
+timeout /t 2 /nobreak >nul
 netstat -ano | findstr /R ":%PORT% .*LISTENING" >nul 2>&1
 if "!errorlevel!"=="0" (
-    echo [WARN] Port %PORT% is already in use. The server may already be running.
-    echo     If not, close the old "Taqnen Geoprotal" window first.
+    echo [ERROR] Port %PORT% is still occupied after terminating the process.
+    echo         Close the program using this port manually, then run this file again.
     goto done
 )
 
