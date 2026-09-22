@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.pytest_cache/
+.agents/
+
+# Runtime logs
+backend/uvicorn*.log
+*.log
+
+# Node
+node_modules/
+frontend/dist/
+
+# Secrets & local connection overrides (contain passwords)
+.env
+*.env
+backend/db_connection.json
+
+# Data (large / machine-specific, not code)
+*.gpkg
+*.gpkg-shm
+*.gpkg-wal
+*.gdb/
+*.rar
+*.zip
+SHP_Files*/
+Done/
+Problems/
+Proccedfiles/
+conflicts.json
+conflicts.json.corrupt.bak
+test.gpkg
+dom.html
+
+# OS / editors
+Thumbs.db
+Desktop.ini
+.vscode/
