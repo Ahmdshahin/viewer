@@ -154,12 +154,14 @@ def _ensure_map_layers(conn) -> None:
                 sort_order INTEGER NOT NULL DEFAULT 100
             );
         """)
-        for d in DEFAULT_MAP_LAYERS:
-            cur.execute(
-                """INSERT INTO map_layers (table_name, label, visible, color, sort_order)
-                   VALUES (%s, %s, %s, %s, %s) ON CONFLICT (table_name) DO NOTHING;""",
-                (d["table"], d["label"], d["visible"], d["color"], d["sort_order"]),
-            )
+        cur.execute("SELECT 1 FROM map_layers LIMIT 1;")
+        if cur.fetchone() is None:
+            for d in DEFAULT_MAP_LAYERS:
+                cur.execute(
+                    """INSERT INTO map_layers (table_name, label, visible, color, sort_order)
+                       VALUES (%s, %s, %s, %s, %s);""",
+                    (d["table"], d["label"], d["visible"], d["color"], d["sort_order"]),
+                )
     conn.commit()
 
 
@@ -228,6 +230,7 @@ def list_map_layers(current_user: User = Depends(get_current_active_admin)):
     for t in available:
         c = cfg.get(t["table"], {})
         items.append({**t,
+                      "curated": t["table"] in cfg,
                       "label": c.get("label") or t["table"],
                       "visible": c.get("visible", False),
                       "color": c.get("color") or PALETTE[order % len(PALETTE)],
@@ -235,7 +238,7 @@ def list_map_layers(current_user: User = Depends(get_current_active_admin)):
         order += 1
     for name, c in cfg.items():
         if not any(t["table"] == name for t in available):
-            items.append({"table": name, "missing": True, **c})
+            items.append({"table": name, "curated": True, "missing": True, **c})
     return {"layers": sorted(items, key=lambda r: (r["sort_order"], r["table"]))}
 
 
@@ -270,6 +273,21 @@ def save_map_layers(items: List[MapLayerIn],
     finally:
         conn.close()
     return {"saved": saved}
+
+
+@router.delete("/map-layers/{table_name}")
+def delete_map_layer(table_name: str,
+                     current_user: User = Depends(get_current_active_admin)):
+    """Remove a layer from the curated map list (admin). The DB table is kept."""
+    conn = _map_conn()
+    try:
+        _ensure_map_layers(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM map_layers WHERE table_name = %s;", (table_name,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"deleted": True, "table": table_name}
 
 
 @router.get("/map-layers/visible")

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useConfirm } from "../components/ConfirmModal";
-import { Server, Save, RefreshCw, CheckCircle, AlertTriangle } from "lucide-react";
+import { Server, Save, RefreshCw, CheckCircle, AlertTriangle, Trash2, PlusCircle } from "lucide-react";
 
 const DbSettings = () => {
   const [form, setForm] = useState({ host: "", port: 5432, user: "", password: "", db: "" });
@@ -53,6 +53,43 @@ const DbSettings = () => {
       fetchMapLayers();
     } catch (err) {
       setError(err.response?.data?.detail || err.message || "Failed to save map layers");
+    } finally {
+      setSavingLayers(false);
+    }
+  };
+  const deleteLayer = (l) => askConfirm({
+    title: "Remove layer?",
+    message: `Remove "${l.label || l.table}" from the map list?\nThe database table stays intact — you can re-add it anytime.`,
+    confirmLabel: "Remove",
+    danger: true,
+    onConfirm: async () => {
+      setError(null);
+      try {
+        await axios.delete(`/api/v1/admin/db/map-layers/${encodeURIComponent(l.table)}`, { headers: headers() });
+        setSuccess("Layer removed from the map list.");
+        fetchMapLayers();
+      } catch (err) {
+        setError(err.response?.data?.detail || err.message || "Failed to remove layer");
+      }
+    },
+  });
+  const [addTable, setAddTable] = useState("");
+  const addLayer = async () => {
+    const t = mapLayers.find((l) => l.table === addTable && !l.curated && !l.missing);
+    if (!t) return;
+    setSavingLayers(true);
+    setError(null);
+    try {
+      const palette = ["#e74c3c", "#3498db", "#27ae60", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#8e44ad"];
+      const curatedNow = mapLayers.filter((l) => l.curated && !l.missing);
+      const body = curatedNow.concat({ table: t.table, label: t.table, visible: true, color: palette[curatedNow.length % palette.length] })
+        .map((l) => ({ table: l.table, label: l.label, visible: !!l.visible, color: l.color || "#3388ff" }));
+      await axios.post("/api/v1/admin/db/map-layers", body, { headers: headers() });
+      setSuccess("Layer added — refresh the map to see it.");
+      setAddTable("");
+      fetchMapLayers();
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || "Failed to add layer");
     } finally {
       setSavingLayers(false);
     }
@@ -116,108 +153,149 @@ const DbSettings = () => {
   );
 
   return (
-    <div className="p-6 h-[calc(100vh-4rem)] overflow-y-auto bg-slate-50">
-      <div className="max-w-2xl mx-auto">
+    <div className="p-6 h-[calc(100vh-4rem)] overflow-hidden bg-slate-50">
+      <div className="h-full flex flex-col max-w-[1500px] mx-auto min-h-0">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center mb-1">
           <Server className="w-6 h-6 mr-3 text-blue-600" />
           Database Connection
         </h1>
-        <p className="text-sm text-gray-500 mb-4">Admin only. Switching applies instantly to the whole system — no restart needed. The password is never displayed.</p>
+        <p className="text-sm text-gray-500 mb-3">Admin only. Switching applies instantly to the whole system — no restart needed. The password is never displayed.</p>
 
         {error && (
-          <div className="p-3 bg-red-100 text-red-700 rounded-md flex items-center text-sm mb-4">
+          <div className="p-3 bg-red-100 text-red-700 rounded-md flex items-center text-sm mb-3">
             <AlertTriangle className="w-5 h-5 mr-2 flex-shrink-0" />
             <span className="whitespace-pre-wrap">{error}</span>
           </div>
         )}
         {success && (
-          <div className="p-3 bg-emerald-100 text-emerald-800 rounded-md flex items-center font-medium text-sm mb-4">
+          <div className="p-3 bg-emerald-100 text-emerald-800 rounded-md flex items-center font-medium text-sm mb-3">
             <CheckCircle className="w-5 h-5 mr-2" />
             {success}
           </div>
         )}
 
-        {current && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 mb-4 text-sm">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active now: </span>
-            <span className="font-mono text-gray-800">{current.database_url}</span>
-          </div>
-        )}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 min-h-0">
+          {/* Connection panel */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col overflow-y-auto min-h-0">
+            {current && (
+              <div className="rounded-md bg-slate-50 border border-gray-100 px-3 py-2 mb-4 text-sm flex-shrink-0">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active now: </span>
+                <span className="font-mono text-gray-800 break-all">{current.database_url}</span>
+              </div>
+            )}
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {field("Host", "host", "text", "localhost")}
-            {field("Port", "port", "number", "5432")}
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {field("User", "user", "text", "postgres")}
-            {field("Database", "db", "text", "Taqnen_data")}
-          </div>
-          {field("Password (leave blank to keep current)", "password", "password", "••••••••", "new-password")}
+            <div className="space-y-4 flex-shrink-0">
+              <div className="grid grid-cols-2 gap-4">
+                {field("Host", "host", "text", "localhost")}
+                {field("Port", "port", "number", "5432")}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {field("User", "user", "text", "postgres")}
+                {field("Database", "db", "text", "Taqnen_data")}
+              </div>
+              {field("Password (leave blank to keep current)", "password", "password", "••••••••", "new-password")}
 
-          <div className="flex gap-3 pt-1">
-            <button onClick={test} disabled={testing || saving} className="px-4 py-2 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
-              <RefreshCw className={"w-4 h-4 mr-2 " + (testing ? "animate-spin" : "")} />
-              {testing ? "Testing..." : "Test connection"}
-            </button>
-            <button onClick={save} disabled={testing || saving} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
-              <Save className="w-4 h-4 mr-2" />
-              {saving ? "Saving..." : "Save & switch"}
-            </button>
-          </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={test} disabled={testing || saving} className="px-4 py-2 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+                  <RefreshCw className={"w-4 h-4 mr-2 " + (testing ? "animate-spin" : "")} />
+                  {testing ? "Testing..." : "Test connection"}
+                </button>
+                <button onClick={save} disabled={testing || saving} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+                  <Save className="w-4 h-4 mr-2" />
+                  {saving ? "Saving..." : "Save & switch"}
+                </button>
+              </div>
 
-          {testResult && testResult.ok && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md text-sm text-emerald-800">
-              <p className="font-semibold flex items-center"><CheckCircle className="w-4 h-4 mr-1" /> Connection OK</p>
-              <p className="mt-1 text-xs">Tables found: {testResult.tables_found.join(", ") || "none"}</p>
-              {testResult.missing_tables.length > 0 && (
-                <p className="mt-1 text-xs text-amber-700">Missing geoportal tables (save will be refused): {testResult.missing_tables.join(", ")}</p>
+              {testResult && testResult.ok && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md text-sm text-emerald-800">
+                  <p className="font-semibold flex items-center"><CheckCircle className="w-4 h-4 mr-1" /> Connection OK</p>
+                  <p className="mt-1 text-xs">Tables found: {testResult.tables_found.join(", ") || "none"}</p>
+                  {testResult.missing_tables.length > 0 && (
+                    <p className="mt-1 text-xs text-amber-700">Missing geoportal tables (save will be refused): {testResult.missing_tables.join(", ")}</p>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mt-4">
-          <h2 className="text-lg font-semibold text-gray-800 mb-1">Map Layers</h2>
-          <p className="text-sm text-gray-500 mb-3">Choose which database tables appear as layers in the map viewer, with labels and colors.</p>
-          <div className="space-y-2">
-            {mapLayers.map((l) => (
-              <div key={l.table} className="flex items-center gap-3 border border-gray-100 rounded-lg px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={!!l.visible}
-                  disabled={!!l.missing}
-                  onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, visible: e.target.checked } : x))}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  title="Visible in map"
-                />
-                <input
-                  type="color"
-                  value={l.color || "#3388ff"}
-                  onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, color: e.target.value } : x))}
-                  className="w-7 h-7 rounded-full cursor-pointer bg-transparent border border-gray-200 p-0 flex-shrink-0"
-                  title="Layer color"
-                />
-                <input
-                  type="text"
-                  value={l.label}
-                  onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, label: e.target.value } : x))}
-                  className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500"
-                />
-                <span className="text-[11px] text-gray-500 font-mono flex-shrink-0">{l.table}</span>
-                <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">{l.count} feats</span>
-                {l.missing && (
-                  <span className="text-[11px] font-bold text-red-600 flex-shrink-0">table gone</span>
-                )}
-              </div>
-            ))}
-            {mapLayers.length === 0 && (
-              <p className="text-sm text-gray-400">Loading tables...</p>
-            )}
           </div>
-          <button onClick={saveMapLayers} disabled={savingLayers} className="mt-3 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
-            <Save className="w-4 h-4 mr-2" />
-            {savingLayers ? "Saving..." : "Save map layers"}
-          </button>
+
+          {/* Map layers panel */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col min-h-0">
+            <h2 className="text-lg font-semibold text-gray-800 mb-1 flex-shrink-0">Map Layers</h2>
+            <p className="text-sm text-gray-500 mb-3 flex-shrink-0">Choose which database tables appear as layers in the map viewer, with labels and colors.</p>
+            <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1 max-h-72 xl:max-h-none">
+              {mapLayers.map((l) => (
+                <div key={l.table} className="flex items-center gap-3 border border-gray-100 rounded-lg px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={!!l.visible}
+                    disabled={!!l.missing}
+                    onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, visible: e.target.checked } : x))}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    title="Visible in map"
+                  />
+                  <input
+                    type="color"
+                    value={l.color || "#3388ff"}
+                    disabled={!l.curated || !!l.missing}
+                    onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, color: e.target.value } : x))}
+                    className="w-7 h-7 rounded-full cursor-pointer bg-transparent border border-gray-200 p-0 flex-shrink-0 disabled:opacity-30"
+                    title="Layer color"
+                  />
+                  <input
+                    type="text"
+                    value={l.label}
+                    disabled={!l.curated || !!l.missing}
+                    onChange={(e) => setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, label: e.target.value } : x))}
+                    className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+                  />
+                  <span className="text-[11px] text-gray-500 font-mono flex-shrink-0 hidden md:inline">{l.table}</span>
+                  <span className="text-[11px] font-bold text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">{l.count} feats</span>
+                  {l.missing && (
+                    <span className="text-[11px] font-bold text-red-600 flex-shrink-0">table gone</span>
+                  )}
+                  {l.curated ? (
+                    <button
+                      onClick={() => deleteLayer(l)}
+                      className="flex-shrink-0 p-1.5 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      title="Remove layer from map list"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setMapLayers(mapLayers.map((x) => x.table === l.table ? { ...x, curated: true, visible: true, label: x.label || x.table } : x)); }}
+                      className="flex-shrink-0 px-2 py-1 rounded text-[11px] font-semibold bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                      title="Add as map layer"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5 mr-1 inline" /> Add
+                    </button>
+                  )}
+                </div>
+              ))}
+              {mapLayers.length === 0 && (
+                <p className="text-sm text-gray-400">Loading tables...</p>
+              )}
+            </div>
+            <div className="mt-3 flex items-center gap-2 flex-shrink-0 border-t border-gray-100 pt-3">
+              <select
+                value={addTable}
+                onChange={(e) => setAddTable(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-700"
+              >
+                <option value="">New spatial table…</option>
+                {mapLayers.filter((l) => !l.curated && !l.missing).map((l) => (
+                  <option key={l.table} value={l.table}>{l.table} ({l.count} feats)</option>
+                ))}
+              </select>
+              <button onClick={addLayer} disabled={savingLayers || !addTable} className="px-3 py-1.5 bg-slate-900 text-white hover:bg-slate-700 rounded-md text-sm font-semibold inline-flex items-center shadow-sm disabled:opacity-40">
+                <PlusCircle className="w-4 h-4 mr-1.5" /> Add
+              </button>
+            </div>
+            <button onClick={saveMapLayers} disabled={savingLayers} className="mt-3 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50 flex-shrink-0">
+              <Save className="w-4 h-4 mr-2" />
+              {savingLayers ? "Saving..." : "Save map layers"}
+            </button>
+          </div>
         </div>
         {confirmModal}
       </div>
