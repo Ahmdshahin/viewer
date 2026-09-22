@@ -165,10 +165,9 @@ def get_tile(layer_name: str, z: int, x: int, y: int,
         where += ' AND "Req_Number" = ANY(:reqs)'
         params["reqs"] = reqs
 
-    # NOTE: keep property list smallish; full attributes come from rows/identify.
-    # Properties are emitted dynamically so any spatial table tiles cleanly,
-    # even ones without an id / Req_Number / Owner_Name column.
-    mvt_props = ", ".join([_q(c) for c in ("id", "Req_Number", "Owner_Name") if _has_col(info, c)])
+    # Every attribute column is shipped in the tile so the identify popup can
+    # show complete information without extra requests (tables here are small).
+    mvt_props = ", ".join([_q(c) for c in _data_cols(info)])
     sql = text(f"""
         SELECT ST_AsMVT(q, :lname, 4096, 'geom') FROM (
           SELECT {mvt_props + (", " if mvt_props else "")}ST_AsMVTGeom({geom_expr}, ST_TileEnvelope(:z, :x, :y), 4096, 64, true) AS geom

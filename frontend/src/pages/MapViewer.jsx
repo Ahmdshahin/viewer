@@ -108,25 +108,36 @@ export default function MapViewer() {
   // (react-map-gl JSX <Source>/<Layer> children get dropped during style
   // rebuilds, so only the first layer would survive).
   const dynRef = useRef({ sources: [], layers: [] });
+  // react-map-gl v8 exposes the raw maplibre instance via ref.getMap();
+  // the proxy ref omits add/removeSource/Layer, paint & layout setters.
+  const rawMap = () => {
+    const a = mapApiRef.current;
+    if (a) return (typeof a.getMap === "function" && a.getMap()) || a;
+    const r = mapRef.current;
+    if (r) return (typeof r.getMap === "function" && r.getMap()) || r;
+    return null;
+  };
   const clearDynamic = () => {
-    const map = mapRef.current;
-    if (!map) return;
+    const map = rawMap();
+    if (!map || typeof map.removeLayer !== "function") return;
     [...dynRef.current.layers].forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
     [...dynRef.current.sources].forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
     dynRef.current = { sources: [], layers: [] };
   };
   const addDyn = (map, id, spec) => {
+    if (!map || typeof map.addLayer !== "function") return;
     if (map.getLayer(id)) return;
     map.addLayer({ id, ...spec });
     dynRef.current.layers.push(id);
   };
   const addSrc = (map, id, spec) => {
+    if (!map || typeof map.addSource !== "function") return;
     if (map.getSource(id)) return;
     map.addSource(id, spec);
     dynRef.current.sources.push(id);
   };
   const buildDynamic = () => {
-    const map = mapApiRef.current || mapRef.current;
+    const map = rawMap();
     if (!map || typeof map.addSource !== "function") return;
     clearDynamic();
     layerOrder.forEach((k) => {
@@ -135,7 +146,7 @@ export default function MapViewer() {
       const sname = mvtName(cfg.table);
       const style = layerStyle[cfg.table] || { color: cfg.color || "#3388ff", opacity: 0.5 };
       const vis = layerVisibility[cfg.table] ? "visible" : "none";
-      const url = `/api/v1/layers/${apiLayer(cfg.table)}/tiles/{z}/{x}/{y}.pbf?token=${authToken}${selection ? `&sel=${selection.id}` : ""}`;
+      const url = `/api/v1/layers/${apiLayer(cfg.table)}/tiles/{z}/{x}/{y}.pbf?token=${authToken}${selection && selection.id ? `&sel=${selection.id}` : ""}`;
       addSrc(map, k, { type: "vector", tiles: [url], minzoom: 0, maxzoom: 22 });
       if (isPointLike(cfg.gtype)) {
         addDyn(map, `${k}-circle`, { source: k, "source-layer": sname, type: "circle", paint: { "circle-radius": 5, "circle-color": style.color, "circle-opacity": style.opacity, "circle-stroke-width": 1, "circle-stroke-color": "#fff" }, layout: { visibility: vis } });
@@ -241,7 +252,7 @@ export default function MapViewer() {
   // Keep paint + visibility + labels in sync without rebuilding sources.
   useEffect(() => {
     if (!mapReady || !configLoaded) return;
-    const map = mapApiRef.current || mapRef.current;
+    const map = rawMap();
     if (!map || typeof map.setPaintProperty !== "function") return;
     layerOrder.forEach((k) => {
       const cfg = layerByTable(k);
@@ -619,7 +630,15 @@ export default function MapViewer() {
         const sres = await axios.post("/api/v1/layers/selections", { reqs }, { headers: authHeaders() });
         sid = sres.data.selection_id;
       }
-      setSelection(sid ? { id: sid, layer: locationLayer, count: feats.length, bbox: null, sample: feats.slice(0, 200) } : null);
+      const flatBBox = (geometry) => {
+        let minx = 180, miny = 90, maxx = -180, maxy = -90;
+        const eat = (x, y) => { if (Number.isFinite(x) && Number.isFinite(y)) { if (x < minx) minx = x; if (y < miny) miny = y; if (x > maxx) maxx = x; if (y > maxy) maxy = y; } };
+        const walk = (c) => { if (!c) return; if (typeof c[0] === "number") eat(c[0], c[1]); else c.forEach(walk); };
+        walk(geometry && geometry.coordinates);
+        return minx <= maxx ? [minx, miny, maxx, maxy] : null;
+      };
+      const sample = feats.map((f) => ({ ...(f.properties || {}), bbox: flatBBox(f.geometry) }));
+      setSelection({ id: sid, layer: locationLayer, count: feats.length, bbox: null, sample: sample.slice(0, 200) });
       if (feats.length > 0) flyToGeojson({ type: "FeatureCollection", features: feats });
     } catch (err) {
       console.error("Location search failed", err);
@@ -1429,45 +1448,61 @@ export default function MapViewer() {
         {selectedFeature && (() => {
           const info = layerInfo(selectedFeature.layer);
           const p = selectedFeature.properties || {};
+          const FIELD_ORDER = ["Req_Number", "Owner_Name", "Layer_Type", "Area_SQM", "Area_Feddan", "X", "Y", "created_at", "created_by"];
+          const COLUMN_LABELS = {
+            Req_Number: "Req No", Owner_Name: "Owner", Layer_Type: "Layer Type",
+            Area_SQM: "Area (m²)", Area_Feddan: "Area (feddan)", X: "X", Y: "Y",
+            created_by: "Added by", created_at: "Added on", id: "ID",
+          };
+          const prettyKey = (k) => (COLUMN_LABELS[k] || k.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+          const fmtValue = (v) => {
+            if (v === null || v === undefined || v === "") return null;
+            if (typeof v === "number" && Number.isFinite(v)) return v.toLocaleString("en-US", { maximumFractionDigits: 3 });
+            if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}[T\s]/.test(v)) {
+              const d = new Date(v);
+              if (!Number.isNaN(d.getTime())) return d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+            }
+            return String(v);
+          };
+          const keys = [...FIELD_ORDER.filter((k) => k in p), ...Object.keys(p).filter((k) => !FIELD_ORDER.includes(k) && k !== "geometry" && k !== info.geom)];
+          const present = keys.filter((k) => fmtValue(p[k]) !== null);
           const area = parseFloat(p.Area_SQM);
           return (
             <Popup
               longitude={selectedFeature.longitude}
               latitude={selectedFeature.latitude}
               anchor="bottom"
-              maxWidth="320px"
+              maxWidth="360px"
               onClose={() => setSelectedFeature(null)}
             >
-              <div className="min-w-[240px] max-w-[300px]">
+              <div className="min-w-[260px] max-w-[340px]">
                 <div className="flex items-center gap-2 pb-2 mb-1 border-b border-gray-100">
                   <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: info.color }} />
                   <h3 className="font-bold text-sm text-gray-800">{info.label}</h3>
                 </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-gray-50">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Req No</span>
-                  <span className="text-xs font-mono text-gray-800 text-right break-all">{p.Req_Number || "N/A"}</span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-gray-50">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Owner</span>
-                  <span className="text-xs text-gray-800 text-right">{p.Owner_Name || "N/A"}</span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-gray-50">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Area</span>
-                  <span className="text-xs text-gray-800 text-right">
-                    {Number.isFinite(area) ? area.toLocaleString("en-US", { maximumFractionDigits: 2 }) + " m²" : "N/A"}
-                    {Number.isFinite(area) && area > 0 && (
-                      <span className="block text-[11px] text-gray-500">{(area / 4200.83).toFixed(4)} feddan</span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3 py-1 border-b border-gray-50">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Added by</span>
-                  <span className="text-xs font-semibold text-blue-700 text-right">{p.created_by || "N/A"}</span>
-                </div>
-                <div className="flex justify-between gap-3 py-1">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Added on</span>
-                  <span className="text-xs text-gray-800 text-right">{p.created_at ? new Date(p.created_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "N/A"}</span>
-                </div>
+                {present.map((k) => {
+                  const raw = p[k];
+                  const rendered = fmtValue(raw);
+                  if (k === "Area_SQM") {
+                    return (
+                      <div key={k} className="flex justify-between gap-3 py-1 border-b border-gray-50">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">Area</span>
+                        <span className="text-xs text-gray-800 text-right">
+                          {rendered} m²
+                          {Number.isFinite(area) && area > 0 && (
+                            <span className="block text-[11px] text-gray-500">{(area / 4200.83).toFixed(4)} feddan</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={k} className="flex justify-between gap-3 py-1 border-b border-gray-50">
+                      <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">{prettyKey(k)}</span>
+                      <span className={"text-xs text-right break-all " + (k === "created_by" ? "font-semibold text-blue-700" : "text-gray-800")}>{rendered}</span>
+                    </div>
+                  );
+                })}
               </div>
             </Popup>
           );
