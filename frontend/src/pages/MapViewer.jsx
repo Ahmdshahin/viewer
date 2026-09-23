@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Map, { Popup, useControl } from "react-map-gl/maplibre";
+import Map, { Popup, Marker, useControl } from "react-map-gl/maplibre";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import axios from "axios";
-import { Search, UploadCloud, AlertCircle, X, PenTool, Trash2, Layers, Map as MapIcon, Table, Filter, MapPin, ZoomIn, Plus, Minus, Maximize, Download, Type, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, UploadCloud, AlertCircle, X, PenTool, Trash2, Layers, Map as MapIcon, Table, Filter, MapPin, ZoomIn, Plus, Minus, Maximize, Download, Type, GripVertical, ChevronUp, ChevronDown, Ruler } from "lucide-react";
 
 const BASEMAPS = {
   carto: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -25,18 +25,133 @@ const BASEMAPS = {
   }
 };
 
+// --- Client-side geodesic measurement (no turf dependency) ---
+const EARTH_RADIUS_M = 6371008.8; // WGS84 mean radius (m)
+const FEDDAN_SQM = 4200.83; // 1 feddan = 4200.83 m² (administrative convention used across the app)
+const DEG2RAD = (d) => (d * Math.PI) / 180;
+const haversineMeters = (a, b) => {
+  const dLat = DEG2RAD(b[1] - a[1]);
+  const dLng = DEG2RAD(b[0] - a[0]);
+  const s = Math.sin(dLat / 2) ** 2 +
+            Math.cos(DEG2RAD(a[1])) * Math.cos(DEG2RAD(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(s)));
+};
+// Turf-equivalent geodesic polygon area in m² (ring of [lng,lat]; lng in decimal degrees).
+const geodesicAreaSqm = (ring) => {
+  let total = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const p1 = ring[i];
+    const p2 = ring[(i + 1) % ring.length];
+    total += (DEG2RAD(p2[0]) - DEG2RAD(p1[0])) *
+             (2 + Math.sin(DEG2RAD(p1[1])) + Math.sin(DEG2RAD(p2[1])));
+  }
+  return Math.abs((total * EARTH_RADIUS_M * EARTH_RADIUS_M) / 2);
+};
+const measureLengthMeters = (coords) => {
+  let m = 0;
+  for (let i = 1; i < coords.length; i++) m += haversineMeters(coords[i - 1], coords[i]);
+  return m;
+};
+// Closed-ring sides (handles duplicate closing vertex) -> [{ mid, meters }]
+const ringSegments = (ring) => {
+  if (!ring || ring.length < 3) return [];
+  let pts = ring;
+  const first = pts[0], last = pts[pts.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) pts = pts.slice(0, -1);
+  const n = pts.length;
+  if (n < 2) return [];
+  const segs = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    segs.push({ meters: haversineMeters(a, b), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] });
+  }
+  return segs;
+};
+// Area-weighted centroid (falls back to vertex average for degenerate rings).
+const polygonCentroid = (ring) => {
+  if (!ring || !ring.length) return null;
+  let pts = ring;
+  const first = pts[0], last = pts[pts.length - 1];
+  if (first[0] === last[0] && first[1] === last[1]) pts = pts.slice(0, -1);
+  const n = pts.length;
+  if (!n) return null;
+  let fSum = 0, cx = 0, cy = 0;
+  for (let i = 0; i < n; i++) {
+    const x0 = pts[i][0], y0 = pts[i][1];
+    const x1 = pts[(i + 1) % n][0], y1 = pts[(i + 1) % n][1];
+    const f = x0 * y1 - x1 * y0;
+    fSum += f;
+    cx += (x0 + x1) * f;
+    cy += (y0 + y1) * f;
+  }
+  if (Math.abs(fSum) < 1e-12) {
+    let sx = 0, sy = 0;
+    for (const p of pts) { sx += p[0]; sy += p[1]; }
+    return [sx / n, sy / n];
+  }
+  return [cx / (3 * fSum), cy / (3 * fSum)];
+};
+const formatArea = (sqm, unit) => {
+  if (unit === 'sqkm') return (sqm / 1000000).toLocaleString('en-US', { maximumFractionDigits: 4 }) + ' km²';
+  if (unit === 'feddan') return (sqm / FEDDAN_SQM).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' feddan';
+  if (unit === 'sqm') return sqm.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m²';
+  if (sqm >= 1000000) return (sqm / 1000000).toLocaleString('en-US', { maximumFractionDigits: 4 }) + ' km²';
+  if (sqm >= FEDDAN_SQM) return (sqm / FEDDAN_SQM).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' feddan';
+  return sqm.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m²';
+};
+// Returns { type: "length", meters } for LineString or { type: "area", sqm } for Polygon.
+const segmentsWithMidpoints = (coords) => {
+  const segs = [];
+  for (let i = 1; i < coords.length; i++) {
+    const a = coords[i - 1];
+    const b = coords[i];
+    segs.push({ meters: haversineMeters(a, b), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] });
+  }
+  return segs;
+};
+const formatLength = (meters, unit) => {
+  if (unit === 'km') return (meters / 1000).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' km';
+  if (unit === 'm') return meters.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m';
+  return meters >= 1000
+    ? (meters / 1000).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' km'
+    : meters.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m';
+};
+const measureGeom = (geometry) => {
+  if (!geometry || !geometry.coordinates) return null;
+  if (geometry.type === "LineString") return { type: "length", meters: measureLengthMeters(geometry.coordinates) };
+  if (geometry.type === "Polygon") {
+    const ring = geometry.coordinates[0] || [];
+    if (ring.length < 4) return null;
+    return { type: "area", sqm: geodesicAreaSqm(ring) };
+  }
+  return null;
+};
+
 function DrawControl(props) {
+  const propsRef = React.useRef(props);
+  propsRef.current = props;
+  const cleanupRef = React.useRef(null);
   const draw = useControl(
     () => new MapboxDraw(props),
     ({ map }) => {
-      map.on('draw.create', props.onDrawCreate);
-      map.on('draw.update', props.onDrawUpdate);
-      map.on('draw.delete', props.onDrawDelete);
+      const onCreate = (e) => propsRef.current.onDrawCreate && propsRef.current.onDrawCreate(e);
+      const onUpdate = (e) => propsRef.current.onDrawUpdate && propsRef.current.onDrawUpdate(e);
+      const onDelete = (e) => propsRef.current.onDrawDelete && propsRef.current.onDrawDelete(e);
+      const onRender = (e) => propsRef.current.onDrawRender && propsRef.current.onDrawRender(e);
+      map.on('draw.create', onCreate);
+      map.on('draw.update', onUpdate);
+      map.on('draw.delete', onDelete);
+      map.on('draw.render', onRender);
+      cleanupRef.current = () => {
+        map.off('draw.create', onCreate);
+        map.off('draw.update', onUpdate);
+        map.off('draw.delete', onDelete);
+        map.off('draw.render', onRender);
+      };
     },
-    ({ map }) => {
-      map.off('draw.create', props.onDrawCreate);
-      map.off('draw.update', props.onDrawUpdate);
-      map.off('draw.delete', props.onDrawDelete);
+    () => {
+      if (cleanupRef.current) cleanupRef.current();
     },
     {
       position: props.position
@@ -212,6 +327,10 @@ export default function MapViewer() {
   const [exportError, setExportError] = useState(null);
   const [locationLayer, setLocationLayer] = useState(null);
   const [drawnGeom, setDrawnGeom] = useState(null);
+  const [measureMode, setMeasureMode] = useState("length"); // 'length' | 'area'
+  const [measureResult, setMeasureResult] = useState(null); // measureGeom result
+  const [measureUnit, setMeasureUnit] = useState("auto"); // length: auto|m|km | area: auto|sqm|sqkm|feddan
+  const [measureSegs, setMeasureSegs] = useState([]); // [{ mid:[lng,lat], meters }]
   const [queryLayer, setQueryLayer] = useState(null);
   const [queryField, setQueryField] = useState("Req_Number");
   const [queryOp, setQueryOp] = useState("contains");
@@ -605,15 +724,59 @@ export default function MapViewer() {
 
   const onUpdateDraw = useCallback((e) => {
     if (e.features && e.features.length > 0) {
-      setDrawnGeom(e.features[0].geometry);
+      const geometry = e.features[0].geometry;
+      setDrawnGeom(geometry);
+      if (activeTool === 'measure') {
+        setMeasureResult(measureGeom(geometry));
+        setMeasureSegs(geometry.type === 'LineString'
+          ? segmentsWithMidpoints(geometry.coordinates)
+          : ringSegments(geometry.coordinates && geometry.coordinates[0]));
+      }
     }
-  }, []);
+  }, [activeTool]);
+
+  const segSigRef = useRef(null);
+  const onDrawRender = useCallback(() => {
+    if (activeTool !== 'measure' || !drawInstance) return;
+    try {
+      const all = drawInstance.getAll();
+      const feat = (all.features || []).find((f) => f.geometry && (f.geometry.type === 'LineString' || f.geometry.type === 'Polygon'));
+      const g = feat && feat.geometry;
+      if (!g) {
+        if (segSigRef.current !== null) { segSigRef.current = null; setMeasureSegs([]); }
+        return;
+      }
+      if (g.type === 'LineString') {
+        if (measureMode !== 'length') { if (segSigRef.current !== null) { segSigRef.current = null; setMeasureSegs([]); } return; }
+        const coords = g.coordinates;
+        if (!coords || coords.length < 2) { if (segSigRef.current !== null) { segSigRef.current = null; setMeasureSegs([]); } return; }
+        const sig = 'L' + coords.map((p) => p[0].toFixed(6) + ',' + p[1].toFixed(6)).join('|');
+        if (segSigRef.current === sig) return;
+        segSigRef.current = sig;
+        setMeasureSegs(segmentsWithMidpoints(coords));
+        setDrawnGeom(g);
+        return;
+      }
+      // Polygon
+      if (measureMode !== 'area') { if (segSigRef.current !== null) { segSigRef.current = null; setMeasureSegs([]); } return; }
+      const ring = g.coordinates && g.coordinates[0];
+      if (!ring || ring.length < 3) { if (segSigRef.current !== null) { segSigRef.current = null; setMeasureSegs([]); } return; }
+      const psig = 'P' + ring.map((p) => p[0].toFixed(6) + ',' + p[1].toFixed(6)).join('|');
+      if (segSigRef.current === psig) return;
+      segSigRef.current = psig;
+      setMeasureSegs(ringSegments(ring));
+      setMeasureResult(measureGeom(g));
+      setDrawnGeom(g);
+    } catch { /* none */ }
+  }, [activeTool, measureMode, drawInstance]);
 
   const onDrawDelete = useCallback(() => {
     if (drawInstance) {
       const all = drawInstance.getAll();
       if (all.features.length === 0) {
         setDrawnGeom(null);
+        setMeasureResult(null);
+        setMeasureSegs([]);
         deleteSelection();
       }
     }
@@ -667,6 +830,16 @@ export default function MapViewer() {
   const startDrawing = () => {
     if (drawInstance) {
       drawInstance.changeMode('draw_polygon');
+    }
+  };
+  const startMeasure = (mode) => {
+    setActiveTool('measure');
+    setMeasureMode(mode);
+    setMeasureUnit("auto");
+    setMeasureSegs([]);
+    if (drawInstance) {
+      try { drawInstance.deleteAll(); } catch (e) { /* none */ }
+      drawInstance.changeMode(mode === 'area' ? 'draw_polygon' : 'draw_line_string');
     }
   };
 
@@ -1267,8 +1440,73 @@ export default function MapViewer() {
           >
             <UploadCloud className="w-[15px] h-[15px]" />
           </button>
+            <button
+            className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'measure' ? 'bg-red-100 text-red-700' : 'text-gray-700 hover:bg-gray-100')}
+            onClick={() => setActiveTool(activeTool === 'measure' ? null : 'measure')} title="Measure"
+          >
+            <Ruler className="w-[15px] h-[15px]" />
+          </button>
         </div>
       </div>
+
+      {/* Measure Floating Panel */}
+      {activeTool === 'measure' && (
+        <div className="absolute top-[100px] right-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+          <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Measure</h3>
+            <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-3">
+            <div className="flex gap-1 mb-2">
+              {[["length", "Length"], ["area", "Area"]].map(([v, label]) => (
+                <button key={v} onClick={() => startMeasure(v)} className={"flex-1 px-2 py-1.5 rounded text-xs font-semibold transition " + (measureMode === v ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {measureMode === 'length' ? (
+              <div className="flex gap-1 mb-2">
+                {[["m", "meters"], ["km", "km"]].map(([v, label]) => (
+                  <button key={v} onClick={() => setMeasureUnit(v)} className={"px-2 py-1 rounded text-xs font-semibold " + (measureUnit === v ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100')}>{label}</button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex gap-1 mb-2">
+                {[["sqm", "m²"], ["sqkm", "km²"], ["feddan", "feddan"]].map(([v, label]) => (
+                  <button key={v} onClick={() => setMeasureUnit(v)} className={"px-2 py-1 rounded text-xs font-semibold " + (measureUnit === v ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100')}>{label}</button>
+                ))}
+              </div>
+            )}
+            {measureResult ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{measureResult.type === 'length' ? 'Length' : 'Area'}</p>
+                <p className="text-lg font-bold text-indigo-700">{(() => {
+                  const r = measureResult;
+                  if (!r) return '-';
+                  if (r.type === 'length') {
+                    if (measureUnit === 'km') return (r.meters / 1000).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' km';
+                    if (measureUnit === 'm') return r.meters.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m';
+                    return (r.meters >= 1000 ? (r.meters / 1000).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' km' : r.meters.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m');
+                  }
+                  if (measureUnit === 'sqkm') return (r.sqm / 1000000).toLocaleString('en-US', { maximumFractionDigits: 4 }) + ' km²';
+                  if (measureUnit === 'feddan') return (r.sqm / FEDDAN_SQM).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' feddan';
+                  if (measureUnit === 'sqm') return r.sqm.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m²';
+                  if (r.sqm >= 1000000) return (r.sqm / 1000000).toLocaleString('en-US', { maximumFractionDigits: 4 }) + ' km²';
+                  if (r.sqm >= 4200.83) return (r.sqm / FEDDAN_SQM).toLocaleString('en-US', { maximumFractionDigits: 3 }) + ' feddan';
+                  return r.sqm.toLocaleString('en-US', { maximumFractionDigits: 1 }) + ' m²';
+                })()}</p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500 text-center py-2">Choose a mode, then draw on the map.</p>
+            )}
+            <button onClick={() => { if (drawInstance) { try { drawInstance.deleteAll(); } catch (e) { /* none */ } } setMeasureResult(null); setMeasureSegs([]); }} className="w-full mt-2 px-3 py-1.5 rounded-md text-xs font-semibold bg-white border border-red-300 text-red-600 hover:bg-red-50">
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Attribute Table Floating Panel */}
       {activeTool === 'table' && (
@@ -1443,7 +1681,29 @@ export default function MapViewer() {
           onDrawCreate={onUpdateDraw}
           onDrawUpdate={onUpdateDraw}
           onDrawDelete={onDrawDelete}
+          onDrawRender={onDrawRender}
         />
+
+        {activeTool === 'measure' && measureSegs.length > 0 && measureSegs.map((s, i) => (
+          <Marker key={i} longitude={s.mid[0]} latitude={s.mid[1]} anchor="center">
+            <div className="pointer-events-none bg-white border border-indigo-300 text-indigo-700 text-[11px] font-bold px-1.5 py-0.5 rounded shadow-md whitespace-nowrap">
+              {formatLength(s.meters, measureMode === 'length' ? measureUnit : 'auto')}
+            </div>
+          </Marker>
+        ))}
+
+        {activeTool === 'measure' && measureMode === 'area' && measureResult && measureResult.type === 'area' && (() => {
+          const ring = drawnGeom && drawnGeom.coordinates && drawnGeom.coordinates[0];
+          const c = ring ? polygonCentroid(ring) : null;
+          if (!c) return null;
+          return (
+            <Marker longitude={c[0]} latitude={c[1]} anchor="center">
+              <div className="pointer-events-none bg-indigo-600 text-white text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                {formatArea(measureResult.sqm, measureUnit)}
+              </div>
+            </Marker>
+          );
+        })()}
 
         {selectedFeature && (() => {
           const info = layerInfo(selectedFeature.layer);
