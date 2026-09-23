@@ -10,10 +10,10 @@ from app.db.models import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
 # Pages the admin can grant per user (avatar menu / routes).
-PAGE_KEYS = ("processor", "dashboard", "users", "database")
+PAGE_KEYS = ("processor", "point", "dashboard", "users", "database")
 ROLE_DEFAULT_PAGES = {
-    "admin": ["processor", "dashboard", "users", "database"],
-    "editor": ["processor", "dashboard"],
+    "admin": ["processor", "point", "dashboard", "users", "database"],
+    "editor": ["processor", "point", "dashboard"],
     "viewer": ["dashboard"],
 }
 

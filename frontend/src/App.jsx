@@ -2,12 +2,13 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import MapViewer from "./pages/MapViewer";
 import DataProcessor from "./pages/DataProcessor";
+import PointProcessor from "./pages/PointProcessor";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import UserManagement from "./pages/UserManagement";
 import DbSettings from "./pages/DbSettings";
 import axios from "axios";
-import { LayoutDashboard, Users, LogOut, User as UserIcon, Map as MapIcon, Database, Server } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, User as UserIcon, Map as MapIcon, Database, Server, MapPin } from "lucide-react";
 
 function TopBar({ setToken, role, pages }) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -54,6 +55,12 @@ function TopBar({ setToken, role, pages }) {
               <Link to="/processor" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
                 <Database className="w-4 h-4 mr-2" />
                 Data Processor
+              </Link>
+            )}
+            {pages.includes('point') && (
+              <Link to="/point" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
+                <MapPin className="w-4 h-4 mr-2" />
+                Point Processor
               </Link>
             )}
             {pages.includes('dashboard') && (
@@ -130,6 +137,7 @@ function App() {
           <Routes>
             <Route path="/" element={<MapViewer />} />
             <Route path="/processor" element={can("processor") ? <DataProcessor /> : <Navigate to="/" />} />
+            <Route path="/point" element={can("point") ? <PointProcessor /> : <Navigate to="/" />} />
             <Route path="/map" element={<Navigate to="/" />} />
             <Route path="/dashboard" element={can("dashboard") ? <Dashboard /> : <Navigate to="/" />} />
             <Route path="/users" element={can("users") ? <UserManagement /> : <Navigate to="/" />} />

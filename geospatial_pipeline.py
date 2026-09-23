@@ -399,6 +399,109 @@ class GeospatialDataPipeline:
                 dest_file = os.path.join(dest_folder, new_base_name + ext)
                 shutil.copy2(src_file, dest_file)
 
+class PointOnlyPipeline(GeospatialDataPipeline):
+    """Point-layer-only pipeline with the same request-folder contract.
+
+    Processes one folder per request ('REQ - Owner Name'), importing only
+    point geometry into the 'Point' layer of the output GPKG. Folders that
+    contain no point geometry are reported as conflicts (the point tool
+    rejects land/eshghalat-only data).
+    """
+
+    def process_folder(self, folder_name, folder_path):
+        if ' - ' in folder_name:
+            parts = folder_name.split(' - ', 1)
+            req_number = parts[0].strip()
+            owner_name = parts[1].strip()
+        else:
+            req_number = folder_name.strip()
+            owner_name = "Unknown"
+
+        if req_number in self.existing_req_numbers:
+            self.log_conflict(folder_name, "Duplicate Request Number: already exists in the database from a previous process. Skipped to avoid duplication.")
+            return
+
+        shp_files = glob.glob(os.path.join(folder_path, '*.shp'))
+        if len(shp_files) == 0:
+            self.log_conflict(folder_name, "Empty Directory: Zero Shapefiles (.shp) found.")
+            return
+
+        points = []
+
+        required_sidecars = ['.shx', '.dbf']
+        for shp in shp_files:
+            base_name = os.path.splitext(shp)[0]
+            for ext in required_sidecars:
+                if not os.path.exists(base_name + ext):
+                    self.log_conflict(folder_name, f"Corrupted File: Missing {ext} sidecar for {os.path.basename(shp)}")
+                    return
+
+            gdf = None
+            last_err = None
+            for enc in ("utf-8", "cp1256", "windows-1252"):
+                try:
+                    gdf = gpd.read_file(shp, encoding=enc)
+                    break
+                except Exception as e:
+                    last_err = e
+            if gdf is None:
+                self.log_conflict(folder_name, f"Corrupted File: Cannot read {os.path.basename(shp)}. Error: {str(last_err)}")
+                return
+
+            if gdf.empty:
+                continue
+
+            try:
+                gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+            except Exception:
+                pass
+            if gdf.empty:
+                continue
+
+            geom_type = gdf.geom_type.iloc[0]
+            if not isinstance(geom_type, str):
+                self.log_conflict(folder_name, f"Unreadable Geometry: {os.path.basename(shp)} contains no valid geometries.")
+                return
+            if 'Point' in geom_type:
+                points.append((shp, gdf))
+            elif 'Polygon' in geom_type or 'Line' in geom_type:
+                # The point tool ignores non-point files but still requires
+                # at least one point file below.
+                continue
+            else:
+                self.log_conflict(folder_name, f"Unsupported Geometry Type: {geom_type} in {os.path.basename(shp)}")
+                return
+
+        if len(points) == 0:
+            self.log_conflict(folder_name, "No Points: The folder contains no point geometry.")
+            return
+
+        # 4. CRS unification + spatial deduplication for points
+        all_point_gdfs = [self._ensure_32636(gdf) for shp, gdf in points]
+        combined_points = gpd.GeoDataFrame(pd.concat(all_point_gdfs, ignore_index=True), crs=all_point_gdfs[0].crs)
+        combined_points['wkb'] = combined_points.geometry.apply(lambda geom: geom.wkb if geom else None)
+        combined_points = combined_points.drop_duplicates(subset=['wkb']).drop(columns=['wkb'])
+
+        layer_point = []
+        for idx, row in combined_points.iterrows():
+            feat = self.format_feature(row, req_number, owner_name, "Point", is_point=True)
+            layer_point.append(feat)
+
+        # 5. Save to the Point layer of the output GPKG
+        if layer_point:
+            self.append_to_gpkg(layer_point, "Point", combined_points.crs)
+
+        # 6. Archive shapefiles to the Done directory
+        dest_folder = os.path.join(self.done_dir, folder_name)
+        os.makedirs(dest_folder, exist_ok=True)
+        point_idx = 1
+        for shp, _ in points:
+            self.archive_shapefile(shp, dest_folder, f"{req_number}_point_{point_idx}")
+            point_idx += 1
+
+        self.existing_req_numbers.add(req_number)
+
+
 import pandas as pd # Ensure pandas is imported
 
 if __name__ == "__main__":

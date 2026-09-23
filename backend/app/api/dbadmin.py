@@ -122,6 +122,7 @@ DEFAULT_MAP_LAYERS = [
     {"table": "lands", "label": "Land Parcels", "visible": True, "color": "#e74c3c", "sort_order": 1},
     {"table": "eshghalat", "label": "Eshghalat", "visible": True, "color": "#3498db", "sort_order": 2},
     {"table": "points", "label": "Points", "visible": True, "color": "#27ae60", "sort_order": 3},
+    {"table": "mudryia", "label": "Mudryia", "visible": True, "color": "#8e44ad", "sort_order": 4},
 ]
 
 PALETTE = ["#e74c3c", "#3498db", "#27ae60", "#f39c12", "#9b59b6",

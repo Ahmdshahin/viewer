@@ -12,6 +12,7 @@ export default function UserManagement() {
 
   const PAGES = [
     { key: "processor", label: "Proc" },
+    { key: "point", label: "Pnt" },
     { key: "dashboard", label: "Dash" },
     { key: "users", label: "Users" },
     { key: "database", label: "DB" },

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import auth, layers, upload, analysis, users, processor, migrate, dbadmin, export, tiles, search, features, prefs
+from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -27,6 +27,7 @@ app.include_router(upload.router, prefix=f"{settings.API_V1_STR}/upload", tags=[
 app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/analysis", tags=["analysis"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["users"])
 app.include_router(processor.router, prefix=f"{settings.API_V1_STR}/processor", tags=["processor"])
+app.include_router(point_processor.router, prefix=f"{settings.API_V1_STR}/point", tags=["point"])
 app.include_router(migrate.router, prefix=f"{settings.API_V1_STR}/processor/migrate", tags=["migrate"])
 app.include_router(dbadmin.router, prefix=f"{settings.API_V1_STR}/admin/db", tags=["db-admin"])
 app.include_router(export.router, prefix=f"{settings.API_V1_STR}/export", tags=["export"])

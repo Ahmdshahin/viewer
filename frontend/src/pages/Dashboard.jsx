@@ -6,6 +6,7 @@ const LAYERS = [
   { table: "lands", label: "Land Parcels", color: "#e74c3c", hasArea: true },
   { table: "eshghalat", label: "Eshghalat", color: "#3498db", hasArea: true },
   { table: "points", label: "Survey Points", color: "#27ae60", hasArea: false },
+  { table: "mudryia", label: "Mudryia", color: "#8e44ad", hasArea: false },
 ];
 
 const fmt = (n, d = 0) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: d }));
