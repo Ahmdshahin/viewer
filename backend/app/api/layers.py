@@ -131,8 +131,23 @@ def get_layer_attributes(
 def search_layer(layer_name: str, q: str = Query(..., min_length=2),
                  db: Session = Depends(deps.get_db),
                  current_user = Depends(deps.get_current_user)):
-    if layer_name not in VALID_LAYERS:
+    # Accept any registered public spatial layer (map_layers table), not just a
+    # hard-coded list, so new layers (e.g. mudryia) are searchable out of the box.
+    reg = db.execute(text(
+        "SELECT 1 FROM map_layers WHERE table_name = :t"
+    ), {"t": layer_name}).first()
+    if not reg:
         raise HTTPException(status_code=404, detail="Invalid layer name")
+
+    # Some tables (e.g. regoin) do not carry Req_Number / Owner_Name text
+    # columns; they simply have nothing to match on.
+    col_rows = db.execute(text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = :t "
+        "AND column_name IN ('Req_Number', 'Owner_Name')"
+    ), {"t": layer_name}).fetchall()
+    if not col_rows:
+        return {"type": "FeatureCollection", "features": []}
 
     # Capped so one broad query can never flood the browser
     search_query = text(f'''

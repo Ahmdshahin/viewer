@@ -180,6 +180,45 @@ const normCols = (cols) =>
     ? cols.map((c) => (typeof c === "string" ? { name: c, type: "text" } : { name: c && c.name, type: (c && c.type) || "text" }))
     : [];
 
+// Default widths (px) matching the previous fixed Tailwind classes.
+const PANEL_DEFAULTS = { search: 384, layers: 288, export: 288, location: 288, query: 288, basemap: 192, upload: 256, measure: 288, table: 416, topology: 320 };
+
+// Vertical resize grip used by every floating panel. `anchor` = "left" anchors
+// the panel's left edge (grows rightward on drag), "right" anchors the right edge.
+function ResizeHandle({ anchor, width, min, max, onWidth }) {
+  const start = useRef(null);
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    start.current = { x: e.clientX, w: width };
+    const move = (ev) => {
+      if (!start.current) return;
+      const dx = ev.clientX - start.current.x;
+      const next = anchor === "left" ? start.current.w + dx : start.current.w - dx;
+      onWidth(Math.max(min, Math.min(max, next)));
+    };
+    const up = () => {
+      start.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const side = anchor === "left" ? "right-0" : "left-0";
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      className={"absolute " + side + " inset-y-0 w-1.5 cursor-ew-resize select-none flex items-center justify-center group"}
+      title="Drag to resize"
+      style={{ touchAction: "none" }}
+    >
+      <div className="w-[3px] h-10 rounded-full bg-gray-300/70 group-hover:bg-blue-500 transition-colors" />
+    </div>
+  );
+}
+
 export default function MapViewer() {
   const mapRef = useRef();
   const mapApiRef = useRef(null); // maplibre instance, captured on 'load'
@@ -189,6 +228,11 @@ export default function MapViewer() {
   const [configLoaded, setConfigLoaded] = useState(false);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+
+  // Resizable floating-panel widths (per panel key, px).
+  const [panelWidths, setPanelWidths] = useState({});
+  const setPanelWidth = useCallback((key, w) => setPanelWidths((p) => ({ ...p, [key]: w })), []);
+  const pw = (key) => panelWidths[key] ?? PANEL_DEFAULTS[key];
 
   const layerByTable = useCallback((t) => layersCfg.find((l) => l.table === t), [layersCfg]);
   const layerLabel = (t) => { const c = layerByTable(t); return c ? c.label : t; };
@@ -996,8 +1040,8 @@ export default function MapViewer() {
     <div className="flex-1 relative overflow-hidden">
       
       {/* Floating Search Bar */}
-      <div className="absolute top-4 left-4 z-10 w-96">
-        <form onSubmit={handleSearch} className="flex items-center bg-white rounded-full shadow-lg overflow-hidden border border-gray-200">
+      <div className="absolute top-4 left-4 z-30" style={{ width: pw('search') }}>
+        <form onSubmit={handleSearch} className="relative flex items-center bg-white rounded-full shadow-lg overflow-hidden border border-gray-200">
           <div className="pl-4 text-gray-500">
             <Search className="w-5 h-5" />
           </div>
@@ -1011,6 +1055,7 @@ export default function MapViewer() {
           <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 text-sm font-medium transition-colors">
             Search
           </button>
+          <ResizeHandle anchor="left" width={pw('search')} min={300} max={620} onWidth={(w) => setPanelWidth('search', w)} />
         </form>
         {searchMatches.length > 0 && (
           <div className="mt-2 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden">
@@ -1044,7 +1089,8 @@ export default function MapViewer() {
       
       {/* Layers Panel */}
       {activeTool === 'layers' && (
-        <div className="absolute top-[100px] left-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+        <div className="absolute top-[100px] left-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200" style={{ width: pw('layers') }}>
+          <ResizeHandle anchor="left" width={pw('layers')} min={230} max={520} onWidth={(w) => setPanelWidth('layers', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Layers</h3>
             <div className="flex items-center gap-1">
@@ -1111,7 +1157,8 @@ export default function MapViewer() {
 
       {/* Export Data Panel */}
       {activeTool === 'export' && (
-        <div className="absolute top-[100px] left-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+        <div className="absolute top-[100px] left-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200" style={{ width: pw('export') }}>
+          <ResizeHandle anchor="left" width={pw('export')} min={230} max={520} onWidth={(w) => setPanelWidth('export', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Export Data</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1163,7 +1210,8 @@ export default function MapViewer() {
 
       {/* Select by Location Panel */}
       {activeTool === 'location' && (
-        <div className="absolute top-[100px] left-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+        <div className="absolute top-[100px] left-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200" style={{ width: pw('location') }}>
+          <ResizeHandle anchor="left" width={pw('location')} min={230} max={520} onWidth={(w) => setPanelWidth('location', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Select by Location</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1222,7 +1270,8 @@ export default function MapViewer() {
 
       {/* Select by Attributes Panel */}
       {activeTool === 'query' && (
-        <div className="absolute top-[100px] left-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+        <div className="absolute top-[100px] left-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200" style={{ width: pw('query') }}>
+          <ResizeHandle anchor="left" width={pw('query')} min={230} max={520} onWidth={(w) => setPanelWidth('query', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Select by Attributes</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1328,7 +1377,8 @@ export default function MapViewer() {
 
       {/* Basemap Mini Popup */}
       {activeTool === 'basemap' && (
-        <div className="absolute top-[150px] right-[50px] z-20 w-48 bg-white rounded shadow-lg border border-gray-200 p-2">
+        <div className="absolute top-[150px] right-[50px] z-20 bg-white rounded shadow-lg border border-gray-200 p-2" style={{ width: pw('basemap') }}>
+          <ResizeHandle anchor="right" width={pw('basemap')} min={180} max={420} onWidth={(w) => setPanelWidth('basemap', w)} />
           <div className="flex justify-between items-center mb-2 px-1">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Basemap</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1347,7 +1397,8 @@ export default function MapViewer() {
 
       {/* Upload Mini Popup */}
       {activeTool === 'upload' && (
-        <div className="absolute top-[150px] right-[50px] z-20 w-64 bg-white rounded shadow-lg border border-gray-200 p-3">
+        <div className="absolute top-[150px] right-[50px] z-20 bg-white rounded shadow-lg border border-gray-200 p-3" style={{ width: pw('upload') }}>
+          <ResizeHandle anchor="right" width={pw('upload')} min={220} max={460} onWidth={(w) => setPanelWidth('upload', w)} />
           <div className="flex justify-between items-center mb-2 px-1">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Upload File</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1391,28 +1442,28 @@ export default function MapViewer() {
         <div className="absolute top-[100px] left-[10px] z-10 flex flex-col gap-2">
             <div className="flex flex-col bg-white rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)] overflow-hidden">
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'layers' ? 'bg-green-100 text-green-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'layers' ? 'bg-green-100 text-green-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'layers' ? null : 'layers')} title="Layer List"
             >
-              <Layers className="w-[15px] h-[15px]" />
+              <Layers className="w-[18px] h-[18px]" />
             </button>
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'query' ? 'bg-purple-100 text-purple-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'query' ? 'bg-purple-100 text-purple-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'query' ? null : 'query')} title="Select by Attributes"
             >
-              <Filter className="w-[15px] h-[15px]" />
+              <Filter className="w-[18px] h-[18px]" />
             </button>
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'location' ? 'bg-orange-100 text-orange-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'location' ? 'bg-orange-100 text-orange-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'location' ? null : 'location')} title="Select by Location"
             >
-              <MapPin className="w-[15px] h-[15px]" />
+              <MapPin className="w-[18px] h-[18px]" />
             </button>
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'export' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'export' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'export' ? null : 'export')} title="Export Data"
             >
-              <Download className="w-[15px] h-[15px]" />
+              <Download className="w-[18px] h-[18px]" />
             </button>
           </div>
         </div>
@@ -1423,35 +1474,36 @@ export default function MapViewer() {
           
 
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'basemap' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'basemap' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'basemap' ? null : 'basemap')} title="Change Basemap"
             >
-              <MapIcon className="w-[15px] h-[15px]" />
+              <MapIcon className="w-[18px] h-[18px]" />
             </button>
             <button 
-              className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'table' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-700 hover:bg-gray-100')}
+              className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'table' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => { setTableLocked(null); setActiveTool(activeTool === 'table' ? null : 'table'); }} title="Attribute Table"
             >
-              <Table className="w-[15px] h-[15px]" />
+              <Table className="w-[18px] h-[18px]" />
             </button>
             <button 
-            className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'upload' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
+            className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'upload' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
             onClick={() => setActiveTool(activeTool === 'upload' ? null : 'upload')} title="Upload Shapefile"
           >
-            <UploadCloud className="w-[15px] h-[15px]" />
+            <UploadCloud className="w-[18px] h-[18px]" />
           </button>
             <button
-            className={"w-[29px] h-[29px] flex items-center justify-center " + (activeTool === 'measure' ? 'bg-red-100 text-red-700' : 'text-gray-700 hover:bg-gray-100')}
+            className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'measure' ? 'bg-red-100 text-red-700' : 'text-gray-700 hover:bg-gray-100')}
             onClick={() => setActiveTool(activeTool === 'measure' ? null : 'measure')} title="Measure"
           >
-            <Ruler className="w-[15px] h-[15px]" />
+            <Ruler className="w-[18px] h-[18px]" />
           </button>
         </div>
       </div>
 
       {/* Measure Floating Panel */}
       {activeTool === 'measure' && (
-        <div className="absolute top-[100px] right-[50px] z-20 w-72 bg-white rounded-lg shadow-xl border border-gray-200">
+        <div className="absolute top-[100px] right-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200" style={{ width: pw('measure') }}>
+          <ResizeHandle anchor="right" width={pw('measure')} min={230} max={520} onWidth={(w) => setPanelWidth('measure', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Measure</h3>
             <button onClick={() => setActiveTool(null)} className="text-gray-400 hover:text-gray-700">
@@ -1510,7 +1562,8 @@ export default function MapViewer() {
 
       {/* Attribute Table Floating Panel */}
       {activeTool === 'table' && (
-        <div className="absolute top-[100px] right-[50px] z-20 w-[26rem] bg-white rounded-lg shadow-xl border border-gray-200 flex flex-col max-h-[calc(100vh-140px)]">
+        <div className="absolute top-[100px] right-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200 flex flex-col max-h-[calc(100vh-140px)]" style={{ width: pw('table') }}>
+          <ResizeHandle anchor="right" width={pw('table')} min={340} max={760} onWidth={(w) => setPanelWidth('table', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100 flex-shrink-0">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
               Attribute Table{tableLocked ? " — " + layerLabel(tableLocked) : ""}
@@ -1587,9 +1640,10 @@ export default function MapViewer() {
       )}
 
       {/* Slide-out Tool Panel (topology only; all other tools use left mini popups) */}
-      {(activeTool === 'topology') && (
-        <div className="absolute top-0 right-0 h-full w-80 bg-white shadow-2xl z-20 border-l border-gray-200 flex flex-col transition-all">
-            <div className="flex justify-between items-center p-4 border-b bg-gray-50">
+{(activeTool === 'topology') && (
+        <div className="absolute top-0 right-0 h-full bg-white shadow-2xl z-20 border-l border-gray-200 flex flex-col transition-all" style={{ width: pw('topology') }}>
+          <ResizeHandle anchor="right" width={pw('topology')} min={280} max={680} onWidth={(w) => setPanelWidth('topology', w)} />
+          <div className="flex justify-between items-center p-4 border-b bg-gray-50 flex-shrink-0">
               <h2 className="font-bold text-gray-700 flex items-center">
                 {activeTool === 'topology' && <><AlertCircle className="w-5 h-5 mr-2 text-orange-500"/> Topology Check</>}
               </h2>

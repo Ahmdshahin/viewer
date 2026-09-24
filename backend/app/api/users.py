@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.api import deps
 from app.db.models import User
 from app.core.security import hash_password
@@ -20,6 +21,7 @@ class UserUpdate(BaseModel):
     permissions: Optional[List[str]] = None
     is_active: Optional[bool] = None
     full_name: Optional[str] = None
+    password: Optional[str] = None
 
 class UserOut(BaseModel):
     id: int
@@ -88,6 +90,12 @@ def update_user(user_id: int, user_in: UserUpdate, db: Session = Depends(deps.ge
         db_user.is_active = user_in.is_active
     if user_in.full_name is not None:
         db_user.full_name = user_in.full_name
+    if user_in.password is not None:
+        if not user_in.password.strip():
+            raise HTTPException(status_code=400, detail="Password cannot be empty.")
+        if len(user_in.password.strip()) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+        db_user.hashed_password = hash_password(user_in.password)
     db.commit()
     db.refresh(db_user)
     return _out(db_user)
@@ -100,6 +108,35 @@ def delete_user(user_id: int, db: Session = Depends(deps.get_db), current_user: 
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # A user can only be deleted when they are not linked to any saved data
+    # (cadastral rows, migrated layers, or audit records).
+    uname = db_user.username
+    data_tables = ("lands", "eshghalat", "points", "mudryia", "regoin")
+    linked = []
+    for t in data_tables:
+        try:
+            n = db.execute(text(f'SELECT COUNT(*) FROM "{t}" WHERE "created_by" = :u'), {"u": uname}).scalar()
+        except Exception:
+            n = 0
+        if n:
+            linked.append(f"{t} ({n} rows)")
+    try:
+        audit_n = db.execute(
+            text('SELECT COUNT(*) FROM audit_trail WHERE "user_id" = :uid OR "username" = :u'),
+            {"uid": user_id, "u": uname},
+        ).scalar()
+    except Exception:
+        audit_n = 0
+    if audit_n:
+        linked.append(f"audit_trail ({audit_n} records)")
+
+    if linked:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete @{uname}: user is linked to data — {', '.join(linked)}.",
+        )
+
     db.delete(db_user)
     db.commit()
     return {"status": "deleted"}

@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { UserPlus, Shield, User, CheckCircle, XCircle, Pencil, Save, X } from "lucide-react";
+import { UserPlus, Shield, User, CheckCircle, XCircle, Pencil, Save, X, KeyRound, Power, Trash2 } from "lucide-react";
+import { useConfirm } from "../components/ConfirmModal";
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
@@ -9,6 +10,10 @@ export default function UserManagement() {
   const [success, setSuccess] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ full_name: "", role: "viewer", is_active: true });
+  const [pwUser, setPwUser] = useState(null);
+  const [pwPassword, setPwPassword] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [askConfirm, confirmModal] = useConfirm();
 
   const PAGES = [
     { key: "processor", label: "Proc" },
@@ -90,6 +95,78 @@ export default function UserManagement() {
       fetchUsers();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update user");
+    }
+  };
+
+  const toggleActive = async (user) => {
+    setError("");
+    setSuccess("");
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(`/api/v1/users/${user.id}`, { is_active: !user.is_active }, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      setSuccess(`@${user.username} ${user.is_active ? "deactivated" : "activated"}`);
+      fetchUsers();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to update status");
+    }
+  };
+
+  const openPw = (user) => {
+    setPwUser(user);
+    setPwPassword("");
+    setError("");
+    setSuccess("");
+  };
+
+  const closePw = () => {
+    setPwUser(null);
+    setPwPassword("");
+    setPwBusy(false);
+  };
+
+  const changePassword = async (e) => {
+    e.preventDefault();
+    if (pwPassword.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setPwBusy(true);
+    try {
+      const token = localStorage.getItem("token");
+      await axios.put(`/api/v1/users/${pwUser.id}`, { password: pwPassword }, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      setSuccess(`Password changed for @${pwUser.username}`);
+      closePw();
+      fetchUsers();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to change password");
+      setPwBusy(false);
+    }
+  };
+
+  const requestDelete = (user) => askConfirm({
+    title: "Delete user?",
+    message: `Permanently delete @${user.username}?\nThis only works if the user is not linked to any saved data (rows they created or audit records).`,
+    confirmLabel: "Delete",
+    danger: true,
+    onConfirm: () => deleteUser(user),
+  });
+
+  const deleteUser = async (user) => {
+    setError("");
+    setSuccess("");
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`/api/v1/users/${user.id}`, {
+        headers: { Authorization: "Bearer " + token }
+      });
+      setSuccess(`User @${user.username} deleted.`);
+      fetchUsers();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete user");
     }
   };
 
@@ -260,12 +337,36 @@ export default function UserManagement() {
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => startEdit(user)}
-                          className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        >
-                          <Pencil className="w-3 h-3 mr-1" /> Edit
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startEdit(user)}
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+                            title="Edit name / role"
+                          >
+                            <Pencil className="w-3 h-3 mr-1" /> Edit
+                          </button>
+                          <button
+                            onClick={() => toggleActive(user)}
+                            className={"inline-flex items-center px-2 py-1 rounded text-xs font-semibold transition-colors " + (user.is_active ? "bg-red-50 text-red-700 hover:bg-red-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100")}
+                            title={user.is_active ? "Deactivate user" : "Activate user"}
+                          >
+                            <Power className="w-3 h-3 mr-1" /> {user.is_active ? "Deactivate" : "Activate"}
+                          </button>
+                          <button
+                            onClick={() => openPw(user)}
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                            title="Change password"
+                          >
+                            <KeyRound className="w-3 h-3 mr-1" /> Password
+                          </button>
+                          <button
+                            onClick={() => requestDelete(user)}
+                            className="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                            title="Delete user (only if not linked to data)"
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" /> Delete
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -283,6 +384,49 @@ export default function UserManagement() {
         </div>
 
       </div>
+
+      {pwUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={closePw}>
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold flex items-center text-gray-800 mb-1">
+              <KeyRound className="w-5 h-5 mr-2 text-amber-600" />
+              Change Password
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Set a new password for <span className="font-medium text-gray-700">@{pwUser.username}</span>
+            </p>
+            <form onSubmit={changePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New password</label>
+                <input
+                  type="password" required minLength={6}
+                  autoFocus
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  value={pwPassword} onChange={(e) => setPwPassword(e.target.value)}
+                />
+                <p className="text-xs text-gray-400 mt-1">Minimum 6 characters.</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closePw}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={pwBusy}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition"
+                >
+                  {pwBusy ? "Saving..." : "Change password"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {confirmModal}
     </div>
   );
 }
