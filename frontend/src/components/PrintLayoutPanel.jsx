@@ -707,6 +707,9 @@ export default function PrintLayoutPanel({
   const capBusyRef = useRef(false);
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const geomTickRef = useRef(0);
+  geomTickRef.current = geomTick;
+  const captureCacheRef = useRef(null);
   const logoImgRef = useRef(null);
   const logoLoadTickRef = useRef(0);
 
@@ -987,7 +990,32 @@ export default function PrintLayoutPanel({
       const PXS = (asPreview ? 96 : st.cfg.dpi) / 25.4;
       const pxW = Math.max(2, Math.round(layout.mapW * PXS));
       const pxH = Math.max(2, Math.round(layout.mapH * PXS));
-      const cap = await captureFrom(pxW, pxH);
+      // Reuse the last offscreen capture when the map footprint (frame extent,
+      // camera moves, style, visible layers) is unchanged - only re-capture when
+      // the requested resolution grows, so high-dpi exports stay sharp.
+      const camKey = JSON.stringify({
+        f: st.frame,
+        g: geomTickRef.current,
+        s: basemapStyle,
+        l: orderedTables.filter((t) => layerVisibility[t]).join("|"),
+      });
+      const cached = captureCacheRef.current;
+      let cap = null;
+      if (cached && cached.key === camKey) {
+        const cw = cached.result.pxW;
+        const ch = cached.result.pxH;
+        const sameRes = Math.abs(pxW - cw) <= Math.max(8, cw * 0.02) && Math.abs(pxH - ch) <= Math.max(8, ch * 0.02);
+        const shrinkOnly = pxW <= cw * 1.02 && pxH <= ch * 1.02;
+        if (sameRes || shrinkOnly) cap = cached.result;
+      }
+      if (!cap) {
+        cap = await captureFrom(pxW, pxH);
+        if (cap) {
+          cap.pxW = pxW;
+          cap.pxH = pxH;
+          captureCacheRef.current = { key: camKey, result: cap };
+        }
+      }
       if (token !== seqRef.current) return;
       if (!cap) { setBusy("idle"); return; }
       const canvas = await renderPage({
@@ -1005,7 +1033,7 @@ export default function PrintLayoutPanel({
       if (token === seqRef.current) { capBusyRef.current = false; setBusy("idle"); }
       else capBusyRef.current = false;
     }
-  }, [captureFrom]);
+  }, [captureFrom, basemapStyle, orderedTables, layerVisibility]);
 
   /* auto-refresh preview (debounced) when signature changes */
   useEffect(() => {
