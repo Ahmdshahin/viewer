@@ -131,6 +131,33 @@ class TestSpatialAnalysisToolsTier1:
         data = resp.json()
         assert "overlaps" in data or "gaps" in data or "issues" in data
 
+    def test_same_layer_overlap_and_self_intersection_detection(self, api_client):
+        """
+        Feature 12 (R3) 'Select by Location' same-layer option:
+        POST /analysis/same-layer-overlaps detects pairs that overlap each other
+        within ONE layer, plus invalid/self-intersecting geometries.
+        """
+        payload = {"layer": "lands", "min_overlap_sqm": 1.0}
+        resp = api_client.post("/analysis/same-layer-overlaps", json=payload)
+        assert resp.status_code == 200, f"Same-layer overlap check failed: {resp.text}"
+        data = resp.json()
+        assert "overlaps" in data and "invalid" in data
+        for pair in data["overlaps"]:
+            # Structure of each overlapping pair
+            assert "id1" in pair and "id2" in pair
+            assert "overlap_area_sqm" in pair
+            assert "feature1" in pair and "feature2" in pair
+            assert "geom" in pair  # intersection geometry for zooming
+            assert float(pair["overlap_area_sqm"]) > 0
+        for iv in data["invalid"]:
+            assert "id" in iv and "reason" in iv and "geom" in iv
+
+    def test_same_layer_overlap_rejects_unknown_layer(self, api_client):
+        """Unknown layer name is rejected with 404 (defends SQL interpolation)."""
+        resp = api_client.post("/analysis/same-layer-overlaps",
+                               json={"layer": "users; DROP TABLE lands; --"})
+        assert resp.status_code == 404
+
     def test_feature_identify_and_history(self, api_client):
         """
         Feature 22 (R3 Acceptance Criteria):

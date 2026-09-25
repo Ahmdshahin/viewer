@@ -149,6 +149,61 @@ def check_topology(req: TopologyRequest, db: Session = Depends(deps.get_db),
 class AOIRequest(BaseModel):
     geometry: Dict[str, Any]
 
+class SameLayerOverlapRequest(BaseModel):
+    layer: str
+    min_overlap_sqm: float = 1.0
+
+@router.post("/same-layer-overlaps")
+def same_layer_overlaps(req: SameLayerOverlapRequest, db: Session = Depends(deps.get_db),
+                        current_user = Depends(deps.get_current_user)):
+    """
+    "Select by Location" same-layer tool: find features in ONE layer that
+    overlap another feature of the same layer, plus any invalid /
+    self-intersecting geometries that postgis considers broken.
+    """
+    lname = req.layer
+    if not db.execute(text("SELECT 1 FROM map_layers WHERE table_name = :t"),
+                      {"t": lname}).first():
+        raise HTTPException(status_code=404, detail="Invalid layer name")
+
+    # Overlapping pairs within the same layer (a.id < b.id keeps each pair once).
+    pairs_sql = text(f'''
+        SELECT
+            a.id AS id1,
+            b.id AS id2,
+            ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) AS overlap_area_sqm,
+            jsonb_build_object('id', a.id, 'props', to_jsonb(a) - 'geometry') AS feature1,
+            jsonb_build_object('id', b.id, 'props', to_jsonb(b) - 'geometry') AS feature2,
+            ST_AsGeoJSON(ST_Transform(
+                ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry)), 4326
+            ))::json AS geom
+        FROM {lname} a
+        JOIN {lname} b
+          ON ST_Intersects(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry)) AND a.id < b.id
+        WHERE ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) >= :min_overlap
+        ORDER BY ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) DESC
+        LIMIT 200
+    ''')
+    pairs = db.execute(pairs_sql, {"min_overlap": req.min_overlap_sqm}).mappings().all()
+
+    # Invalid / self-intersecting single geometries in the same layer.
+    invalid_sql = text(f'''
+        SELECT
+            id,
+            ST_IsValidReason(geometry) AS reason,
+            ST_AsGeoJSON(ST_Transform(ST_Envelope(ST_MakeValid(geometry)), 4326))::json AS geom
+        FROM {lname}
+        WHERE NOT ST_IsValid(geometry)
+        LIMIT 200
+    ''')
+    invalid = db.execute(invalid_sql).mappings().all()
+
+    return {
+        "layer": lname,
+        "overlaps": [dict(r) for r in pairs],
+        "invalid": [dict(r) for r in invalid],
+    }
+
 @router.get("/topology/{layer_name}")
 def check_topology_by_layer(layer_name: str, db: Session = Depends(deps.get_db),
                             current_user = Depends(deps.get_current_user)):

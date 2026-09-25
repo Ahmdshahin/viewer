@@ -178,6 +178,27 @@ const MVT_NAME = { lands: "land", eshghalat: "eshghalat", points: "point" };
 // UI layer key (config table name) -> real PostGIS table used by the API
 const apiLayer = (k) => k;
 
+// [minLng, minLat, maxLng, maxLat] of any GeoJSON geometry (or null).
+const geomBounds = (geometry) => {
+  if (!geometry || !geometry.coordinates) return null;
+  let minx = 180, miny = 90, maxx = -180, maxy = -90;
+  const eat = (x, y) => {
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      if (x < minx) minx = x;
+      if (y < miny) miny = y;
+      if (x > maxx) maxx = x;
+      if (y > maxy) maxy = y;
+    }
+  };
+  const walk = (c) => {
+    if (!c) return;
+    if (typeof c[0] === "number") eat(c[0], c[1]);
+    else c.forEach(walk);
+  };
+  walk(geometry.coordinates);
+  return minx <= maxx ? [minx, miny, maxx, maxy] : null;
+};
+
 // rows endpoint returns [{name,type}]; tolerate a plain-string list too.
 const normCols = (cols) =>
   Array.isArray(cols)
@@ -410,6 +431,10 @@ const moveLayer = (key, dir) => {
   const [exportError, setExportError] = useState(null);
   const [locationLayer, setLocationLayer] = useState(null);
   const [drawnGeom, setDrawnGeom] = useState(null);
+  const [overlapPairs, setOverlapPairs] = useState(null); // null = not run yet
+  const [overlapInvalid, setOverlapInvalid] = useState(null);
+  const [overlapBusy, setOverlapBusy] = useState(false);
+  const [overlapErr, setOverlapErr] = useState("");
   const [measureMode, setMeasureMode] = useState("length"); // 'length' | 'area'
   const [measureResult, setMeasureResult] = useState(null); // measureGeom result
   const [measureUnit, setMeasureUnit] = useState("auto"); // length: auto|m|km | area: auto|sqm|sqkm|feddan
@@ -908,6 +933,54 @@ const moveLayer = (key, dir) => {
     }
     setDrawnGeom(null);
     deleteSelection();
+    setOverlapPairs(null);
+    setOverlapInvalid(null);
+    setOverlapErr("");
+  };
+
+  /* Same-layer overlap / self-intersection check (no drawn polygon needed). */
+  const runOverlapCheck = async () => {
+    if (!locationLayer || overlapBusy) return;
+    setOverlapBusy(true);
+    setOverlapErr("");
+    try {
+      const res = await axios.post(
+        "/api/v1/analysis/same-layer-overlaps",
+        { layer: locationLayer, min_overlap_sqm: 1.0 },
+        { headers: authHeaders() }
+      );
+      setOverlapPairs(res.data.overlaps || []);
+      setOverlapInvalid(res.data.invalid || []);
+    } catch (err) {
+      setOverlapPairs(null);
+      setOverlapInvalid(null);
+      setOverlapErr(
+        (err && err.response && err.response.data && err.response.data.detail) ||
+        (err && err.message) || "Overlap check failed"
+      );
+    } finally {
+      setOverlapBusy(false);
+    }
+  };
+
+  const zoomToOverlap = (p) => {
+    const b = geomBounds(p && p.geom);
+    const m = mapRef.current;
+    if (b && m) m.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 90, maxZoom: 19, duration: 1000 });
+  };
+
+  const recLabel = (rec) => {
+    const pr = (rec && rec.props) || {};
+    const r = pr.Req_Number || pr.req_number;
+    return r ? String(r) : (rec && rec.id) ? "#" + rec.id : "?";
+  };
+  const recOwner = (rec) => {
+    const pr = (rec && rec.props) || {};
+    return pr.Owner_Name || pr.owner_name || "";
+  };
+  const fmtArea = (sqm) => {
+    const v = Number(sqm) || 0;
+    return (Math.round(v * 10) / 10).toLocaleString("en-US", { maximumFractionDigits: 1 }) + " m²";
   };
   const fetchTable = async (page, filt, selId, table) => {
     if (!table) return;
@@ -1295,7 +1368,12 @@ const moveLayer = (key, dir) => {
               <p className="text-[11px] font-semibold text-gray-500 mb-1">Layer</p>
               <select
                 value={locationLayer || ""}
-                onChange={(e) => setLocationLayer(e.target.value)}
+                onChange={(e) => {
+                  setLocationLayer(e.target.value);
+                  setOverlapPairs(null);
+                  setOverlapInvalid(null);
+                  setOverlapErr("");
+                }}
                 className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
               >
                 {layersCfg.map((l) => (
@@ -1320,6 +1398,53 @@ const moveLayer = (key, dir) => {
               <button onClick={clearLocation} className="px-3 py-2 rounded-md text-xs font-semibold bg-white text-gray-600 border border-gray-300 hover:bg-gray-100">
                 Clear
               </button>
+            </div>
+            <div className="border-t border-gray-100 pt-2 mt-1">
+              <p className="text-[11px] font-semibold text-gray-500 mb-1.5">Same-layer check (no polygon needed)</p>
+              <button
+                onClick={runOverlapCheck}
+                disabled={!locationLayer || overlapBusy}
+                className="w-full px-3 py-2 rounded-md text-xs font-semibold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+              >
+                {overlapBusy ? "Scanning…" : <><DatabaseZap className="w-3.5 h-3.5" /> Find self-intersecting / overlapping — same layer</>}
+              </button>
+              {overlapErr && <p className="text-[11px] text-red-600 mt-1.5">{overlapErr}</p>}
+              {overlapPairs !== null && (
+                <div className="mt-2 space-y-2">
+                  {overlapPairs.length === 0 && overlapInvalid.length === 0 ? (
+                    <p className="text-[11px] text-gray-500">No overlapping or invalid features found in «{layersCfg.find((l) => l.table === locationLayer)?.label || locationLayer}».</p>
+                  ) : (
+                    <>
+                      {overlapPairs.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold text-rose-600 mb-1">{overlapPairs.length} overlapping pair(s) — click to zoom</p>
+                          <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
+                            {overlapPairs.map((p, i) => (
+                              <button key={i} onClick={() => zoomToOverlap(p)} className="w-full text-left px-2 py-1.5 hover:bg-rose-50 text-xs text-gray-800">
+                                <span className="font-semibold">{recLabel(p.feature1)}</span> ↔ <span className="font-semibold">{recLabel(p.feature2)}</span>
+                                <span className="text-gray-500"> · {fmtArea(p.overlap_area_sqm)}</span>
+                                <span className="block text-[10px] text-gray-400 truncate">{recOwner(p.feature1)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {overlapInvalid.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-bold text-amber-600 mb-1">{overlapInvalid.length} invalid / self-intersecting feature(s) — click to zoom</p>
+                          <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-md divide-y divide-gray-100">
+                            {overlapInvalid.map((iv, i) => (
+                              <button key={i} onClick={() => zoomToOverlap(iv)} className="w-full text-left px-2 py-1.5 hover:bg-amber-50 text-xs text-gray-800">
+                                <span className="font-semibold">{iv.id}</span> — <span className="text-amber-700">{iv.reason}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             {selection && selection.layer === locationLayer && (
               <div>
