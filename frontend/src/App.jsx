@@ -135,7 +135,7 @@ function App() {
         
         <main className="flex-1 flex flex-col relative overflow-hidden">
           <Routes>
-            <Route path="/" element={<MapViewer />} />
+            <Route path="/" element={<MapViewer me={me} />} />
             <Route path="/processor" element={can("processor") ? <DataProcessor /> : <Navigate to="/" />} />
             <Route path="/point" element={can("point") ? <PointProcessor /> : <Navigate to="/" />} />
             <Route path="/map" element={<Navigate to="/" />} />

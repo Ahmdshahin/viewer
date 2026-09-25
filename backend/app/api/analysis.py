@@ -166,7 +166,10 @@ def check_topology_by_layer(layer_name: str, db: Session = Depends(deps.get_db),
 @router.post("/intersect/{layer_name}")
 def intersect_layer(layer_name: str, aoi: AOIRequest, db: Session = Depends(deps.get_db),
                     current_user = Depends(deps.get_current_user)):
-    if layer_name not in ["lands", "eshghalat", "points"]:
+    # Accept any registered public spatial layer (map_layers table) so new
+    # layers (e.g. mudryia, regoin) are intersectable out of the box.
+    if not db.execute(text("SELECT 1 FROM map_layers WHERE table_name = :t"),
+                      {"t": layer_name}).first():
         raise HTTPException(status_code=404, detail="Invalid layer name")
 
     geojson_str = json.dumps(aoi.geometry)

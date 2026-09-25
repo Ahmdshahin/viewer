@@ -4,7 +4,11 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import "maplibre-gl/dist/maplibre-gl.css";
 import axios from "axios";
-import { Search, UploadCloud, AlertCircle, X, PenTool, Trash2, Layers, Map as MapIcon, Table, Filter, MapPin, ZoomIn, Plus, Minus, Maximize, Download, Type, GripVertical, ChevronUp, ChevronDown, Ruler } from "lucide-react";
+import { Search, UploadCloud, AlertCircle, X, PenTool, Trash2, Layers, Map as MapIcon, Table, Filter, MapPin, ZoomIn, Plus, Minus, Maximize, Download, Type, GripVertical, ChevronUp, ChevronDown, Ruler, DatabaseZap, ScanLine, Printer } from "lucide-react";
+import UpdateGeometryPanel from "../components/UpdateGeometryPanel";
+import SelectByPolygonPanel from "../components/SelectByPolygonPanel";
+import PrintLayoutPanel from "../components/PrintLayoutPanel";
+import MapLegendPanel from "../components/MapLegendPanel";
 
 const BASEMAPS = {
   carto: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
@@ -181,7 +185,7 @@ const normCols = (cols) =>
     : [];
 
 // Default widths (px) matching the previous fixed Tailwind classes.
-const PANEL_DEFAULTS = { search: 384, layers: 288, export: 288, location: 288, query: 288, basemap: 192, upload: 256, measure: 288, table: 416, topology: 320 };
+const PANEL_DEFAULTS = { search: 384, layers: 288, export: 288, location: 288, query: 288, basemap: 192, upload: 256, measure: 288, table: 416, topology: 320, update: 440, polygon: 400, print: 400 };
 
 // Vertical resize grip used by every floating panel. `anchor` = "left" anchors
 // the panel's left edge (grows rightward on drag), "right" anchors the right edge.
@@ -219,7 +223,8 @@ function ResizeHandle({ anchor, width, min, max, onWidth }) {
   );
 }
 
-export default function MapViewer() {
+export default function MapViewer({ me }) {
+  const isEditor = !!(me && (me.role === "admin" || me.role === "editor" || (me.permissions || []).includes("edit_geometry")));
   const mapRef = useRef();
   const mapApiRef = useRef(null); // maplibre instance, captured on 'load'
 
@@ -255,14 +260,20 @@ export default function MapViewer() {
     setLayerOrder(next);
     setDragKey(null);
   };
-  const moveLayer = (key, dir) => {
+const moveLayer = (key, dir) => {
     const i = layerOrder.indexOf(key);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= layerOrder.length) return;
     const next = [...layerOrder];
-    [next[i], next[j]] = [next[j], next[i]];
+    next.splice(i, 1);
+    next.splice(j, 0, key);
     setLayerOrder(next);
   };
+  const toggleLegend = () => setLegendExpanded((v) => {
+    const nv = !v;
+    try { localStorage.setItem("mapLegendExpanded", nv ? "1" : "0"); } catch (e) { /* ignore */ }
+    return nv;
+  });
   // Dynamic vector sources/layers are added imperatively to the loaded map
   // (react-map-gl JSX <Source>/<Layer> children get dropped during style
   // rebuilds, so only the first layer would survive).
@@ -276,8 +287,7 @@ export default function MapViewer() {
     if (r) return (typeof r.getMap === "function" && r.getMap()) || r;
     return null;
   };
-  const clearDynamic = () => {
-    const map = rawMap();
+  const clearDynamic = (map = rawMap()) => {
     if (!map || typeof map.removeLayer !== "function") return;
     [...dynRef.current.layers].forEach((id) => { if (map.getLayer(id)) map.removeLayer(id); });
     [...dynRef.current.sources].forEach((id) => { if (map.getSource(id)) map.removeSource(id); });
@@ -285,20 +295,19 @@ export default function MapViewer() {
   };
   const addDyn = (map, id, spec) => {
     if (!map || typeof map.addLayer !== "function") return;
+    if (!dynRef.current.layers.includes(id)) dynRef.current.layers.push(id);
     if (map.getLayer(id)) return;
     map.addLayer({ id, ...spec });
-    dynRef.current.layers.push(id);
   };
   const addSrc = (map, id, spec) => {
     if (!map || typeof map.addSource !== "function") return;
+    if (!dynRef.current.sources.includes(id)) dynRef.current.sources.push(id);
     if (map.getSource(id)) return;
     map.addSource(id, spec);
-    dynRef.current.sources.push(id);
   };
-  const buildDynamic = () => {
-    const map = rawMap();
+  const buildDynamic = (map = rawMap()) => {
     if (!map || typeof map.addSource !== "function") return;
-    clearDynamic();
+    clearDynamic(map);
     layerOrder.forEach((k) => {
       const cfg = layerByTable(k);
       if (!cfg) return;
@@ -342,6 +351,29 @@ export default function MapViewer() {
         : "No area values",
     };
   };
+  // Legend reflects whatever the map is actually showing: a layer is listed
+  // only if its tiles contain at least one feature in the current viewport.
+  const legendTimer = useRef(null);
+  const legendViewRef = useRef(() => {});
+  const updateLegendFromView = () => {
+    const map = rawMap();
+    if (!map || typeof map.querySourceFeatures !== "function") return;
+    const shown = [];
+    layerOrder.forEach((k) => {
+      const cfg = layerByTable(k);
+      if (!cfg || !layerVisibility[k]) return;
+      try {
+        const ftrs = map.querySourceFeatures(k, { sourceLayer: mvtName(cfg.table) });
+        if (ftrs && ftrs.length > 0) shown.push(k);
+      } catch (e) { /* source not ready yet */ }
+    });
+    setLegendViewTables(shown);
+  };
+  legendViewRef.current = updateLegendFromView;
+  const scheduleLegendView = () => {
+    if (legendTimer.current) clearTimeout(legendTimer.current);
+    legendTimer.current = setTimeout(() => legendViewRef.current(), 250);
+  };
   const [basemap, setBasemap] = useState(() => localStorage.getItem("preferredBasemap") || "carto");
   
   useEffect(() => {
@@ -359,6 +391,13 @@ export default function MapViewer() {
   const [uploadPreview, setUploadPreview] = useState(null);
   const [uploadFileName, setUploadFileName] = useState(null);
   const [activeTool, setActiveTool] = useState(null);
+  const [legendViewTables, setLegendViewTables] = useState(null);
+  const [legendExpanded, setLegendExpanded] = useState(() => {
+    try {
+      const v = localStorage.getItem("mapLegendExpanded");
+      return v === null ? true : v === "1";
+    } catch (e) { return true; }
+  });
   const [drawInstance, setDrawInstance] = useState(null);
   const [activeTable, setActiveTable] = useState(null); // default filled from config
   const [tableLocked, setTableLocked] = useState(null); // layer key when opened from Layers panel
@@ -449,6 +488,14 @@ export default function MapViewer() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, configLoaded, layerOrder, layerStyle, layerVisibility, labelLayers]);
+
+  // Re-scan the map view for legend entries whenever the visible layer set
+  // or the selection (which retiles dynamic sources) changes.
+  useEffect(() => {
+    if (!mapReady || !configLoaded) return;
+    scheduleLegendView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, configLoaded, layerOrder, layerVisibility, selection && selection.id]);
 
   const QUERY_FIELDS = [
     { key: "Req_Number", label: "Request No", type: "text" },
@@ -648,6 +695,10 @@ export default function MapViewer() {
         setExportLayers(Object.fromEntries(keys.map((k) => [k, true])));
         setServerStats(Object.fromEntries(keys.map((k) => [k, null])));
         if (typeof pf.basemap === "string" && BASEMAPS[pf.basemap]) setBasemap(pf.basemap);
+        if (typeof pf.legendExpanded === "boolean") {
+          setLegendExpanded(pf.legendExpanded);
+          try { localStorage.setItem("mapLegendExpanded", pf.legendExpanded ? "1" : "0"); } catch (e) { /* ignore */ }
+        }
         if (keys.length) {
           setActiveTable(keys[0]);
           setLocationLayer(keys[0]);
@@ -677,12 +728,12 @@ export default function MapViewer() {
       };
     });
     const t = setTimeout(() => {
-      axios.put("/api/v1/prefs", { data: { basemap, order: layerOrder, layers } }, { headers: authHeaders() })
+      axios.put("/api/v1/prefs", { data: { basemap, order: layerOrder, layers, legendExpanded } }, { headers: authHeaders() })
         .catch((err) => console.error("Failed to save preferences", err));
     }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basemap, layerOrder, layerStyle, layerVisibility, labelLayers, prefsLoaded]);
+  }, [basemap, layerOrder, layerStyle, layerVisibility, labelLayers, legendExpanded, prefsLoaded]);
 
   useEffect(() => {
     if (!configLoaded || !layersCfg.length) return;
@@ -827,7 +878,7 @@ export default function MapViewer() {
   }, [drawInstance]);
 
   const runLocationSearch = async () => {
-    if (!drawnGeom || !locationLayer) return;
+    if (!drawnGeom || drawnGeom.type !== "Polygon" || !locationLayer) return;
     try {
       const res = await axios.post(`/api/v1/analysis/intersect/${apiLayer(locationLayer)}`, { geometry: drawnGeom }, { headers: authHeaders() });
       const feats = res.data.features || [];
@@ -873,6 +924,7 @@ export default function MapViewer() {
   };
   const startDrawing = () => {
     if (drawInstance) {
+      try { drawInstance.deleteAll(); } catch (e) { /* none */ }
       drawInstance.changeMode('draw_polygon');
     }
   };
@@ -887,7 +939,20 @@ export default function MapViewer() {
     }
   };
 
+  // Leaving an interactive drawing tool cancels any in-progress vertex input so
+  // stray clicks cannot leak into other tools (e.g. while printing/exporting).
+  useEffect(() => {
+    if (!drawInstance || typeof drawInstance.getMode !== 'function') return;
+    if (activeTool !== 'measure' && activeTool !== 'location') {
+      const m = drawInstance.getMode();
+      if (m === 'draw_line_string' || m === 'draw_polygon') {
+        try { drawInstance.changeMode('simple_select'); } catch (e) { /* none */ }
+      }
+    }
+  }, [activeTool, drawInstance]);
+
   const onClick = (event) => {
+    if (activeTool === 'polyselect' || activeTool === 'print') return;
     const feature = event.features && event.features[0];
     if (feature) {
       setSelectedFeature({
@@ -1035,6 +1100,13 @@ export default function MapViewer() {
   );
   const displayCols = (tableRows.columns && tableRows.columns.length ? tableRows.columns.slice(0, 4).map((c) => (typeof c === "string" ? c : c.name)) : ["Req_Number", "Owner_Name", "Area_SQM"]);
   const colLabel = (c) => (c === "Req_Number" ? "Request" : c === "Owner_Name" ? "Owner" : c === "Area_SQM" ? "Area m²" : c);
+
+  // Union of loaded layer extents - used by the Print Layout locator inset.
+  const fullExtent = useMemo(() => {
+    const bbs = layersCfg.map((l) => serverStats[l.table] && serverStats[l.table].bbox).filter(Boolean);
+    return bbs.length ? unionBB(bbs) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layersCfg, serverStats]);
 
   return (
     <div className="flex-1 relative overflow-hidden">
@@ -1239,10 +1311,10 @@ export default function MapViewer() {
               Draw area on map
             </button>
             <p className="text-[11px] text-gray-500">
-              {drawnGeom ? "Area drawn — ready to search." : "Draw a polygon on the map first."}
+              {drawnGeom ? (drawnGeom.type === "Polygon" ? "Area drawn — ready to search." : "Shape is not a polygon — draw a polygon first.") : "Draw a polygon on the map first."}
             </p>
             <div className="flex gap-2">
-              <button onClick={runLocationSearch} disabled={!drawnGeom} className="flex-1 px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+              <button onClick={runLocationSearch} disabled={!(drawnGeom && drawnGeom.type === "Polygon")} className="flex-1 px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
                 Find intersecting
               </button>
               <button onClick={clearLocation} className="px-3 py-2 rounded-md text-xs font-semibold bg-white text-gray-600 border border-gray-300 hover:bg-gray-100">
@@ -1459,11 +1531,17 @@ export default function MapViewer() {
             >
               <MapPin className="w-[18px] h-[18px]" />
             </button>
-            <button 
+            <button
               className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'export' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
               onClick={() => setActiveTool(activeTool === 'export' ? null : 'export')} title="Export Data"
             >
               <Download className="w-[18px] h-[18px]" />
+            </button>
+            <button
+              className={"w-[35px] h-[35px] flex items-center justify-center " + (activeTool === 'polyselect' ? 'bg-violet-100 text-violet-700' : 'text-gray-700 hover:bg-gray-100')}
+              onClick={() => setActiveTool(activeTool === 'polyselect' ? null : 'polyselect')} title="Select by Polygon"
+            >
+              <ScanLine className="w-[18px] h-[18px]" />
             </button>
           </div>
         </div>
@@ -1472,6 +1550,12 @@ export default function MapViewer() {
       <div className="absolute top-[100px] right-[10px] z-10 flex flex-col gap-2">
        <div className="flex flex-col bg-white rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)] overflow-hidden mt-2">
           
+            <button 
+              className={"w-[35px] h-[35px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'print' ? 'bg-cyan-100 text-cyan-700' : 'text-gray-700 hover:bg-gray-100')}
+              onClick={() => setActiveTool(activeTool === 'print' ? null : 'print')} title="Print Layout"
+            >
+              <Printer className="w-[18px] h-[18px]" />
+            </button>
 
             <button 
               className={"w-[35px] h-[35px] flex items-center justify-center border-b border-gray-200 " + (activeTool === 'basemap' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-700 hover:bg-gray-100')}
@@ -1497,6 +1581,14 @@ export default function MapViewer() {
           >
             <Ruler className="w-[18px] h-[18px]" />
           </button>
+          {isEditor && (
+            <button
+              className={"w-[35px] h-[35px] flex items-center justify-center border-t border-gray-200 " + (activeTool === 'update' ? 'bg-blue-100 text-blue-700' : 'text-gray-700 hover:bg-gray-100')}
+              onClick={() => setActiveTool(activeTool === 'update' ? null : 'update')} title="Update Geometry"
+            >
+              <DatabaseZap className="w-[18px] h-[18px]" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1560,9 +1652,48 @@ export default function MapViewer() {
         </div>
       )}
 
+      {/* Select by Polygon Docked Panel */}
+      {activeTool === 'polyselect' && (
+        <SelectByPolygonPanel
+          me={me}
+          mapRef={mapApiRef}
+          config={{ layers: layersCfg, api_layers: Object.fromEntries(layersCfg.map((l) => [l.table, apiLayer(l.table)])) }}
+          onClose={() => setActiveTool(null)}
+          panelWidth={pw('polyselect')}
+          onPanelWidth={(w) => setPanelWidth('polyselect', w)}
+        />
+      )}
+
+      {/* Update Geometry Docked Panel */}
+      {activeTool === 'update' && isEditor && (
+        <UpdateGeometryPanel
+          me={me}
+          onClose={() => setActiveTool(null)}
+          panelWidth={pw('update')}
+          onPanelWidth={(w) => setPanelWidth('update', w)}
+        />
+      )}
+
+      {/* Print Layout Docked Panel */}
+      {activeTool === 'print' && (
+        <PrintLayoutPanel
+          mapRef={mapApiRef}
+          basemapStyle={BASEMAPS[basemap]}
+          buildDynamic={buildDynamic}
+          layersCfg={layersCfg}
+          layerOrder={layerOrder}
+          layerStyle={layerStyle}
+          layerVisibility={layerVisibility}
+          fullExtent={fullExtent}
+          onClose={() => setActiveTool(null)}
+          panelWidth={pw('print')}
+          onPanelWidth={(w) => setPanelWidth('print', w)}
+        />
+      )}
+
       {/* Attribute Table Floating Panel */}
       {activeTool === 'table' && (
-        <div className="absolute top-[100px] right-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200 flex flex-col max-h-[calc(100vh-140px)]" style={{ width: pw('table') }}>
+        <div className="absolute top-[100px] right-[50px] z-20 bg-white rounded-lg shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[calc(100vh-185px)]" style={{ width: pw('table') }}>
           <ResizeHandle anchor="right" width={pw('table')} min={340} max={760} onWidth={(w) => setPanelWidth('table', w)} />
           <div className="flex justify-between items-center px-3 py-2 border-b border-gray-100 flex-shrink-0">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
@@ -1701,6 +1832,18 @@ export default function MapViewer() {
         </button>
       </div>
 
+      {/* Live on-screen legend - independent of any tool panel state. */}
+      <MapLegendPanel
+        layersCfg={layersCfg}
+        layerOrder={layerOrder}
+        layerStyle={layerStyle}
+        labelLayers={labelLayers}
+        shownTables={legendViewTables}
+        expanded={legendExpanded}
+        onToggleExpanded={toggleLegend}
+        onMove={moveLayer}
+      />
+
       {/* Session-expired banner (e.g. tile 401s after token expiry) */}
       {tileAuthError && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-red-600 text-white rounded-lg shadow-xl px-4 py-2.5 text-sm font-medium flex items-center gap-3">
@@ -1717,7 +1860,19 @@ export default function MapViewer() {
       <Map
         ref={mapRef}
         initialViewState={{ longitude: 31.2, latitude: 30.0, zoom: 11 }}
-        onLoad={(ev) => { if (ev && ev.target) mapApiRef.current = ev.target; setMapReady(true); zoomExtend(); }}
+        onLoad={(ev) => {
+          if (ev && ev.target) {
+            mapApiRef.current = ev.target;
+            // maplibre fires `load` once per style load, so dynamic layers are
+            // rebuilt after basemap switches wipe them from the style.
+            ev.target.on("load", () => { try { buildDynamic(); } catch (e) { /* none */ } });
+            ev.target.on("moveend", scheduleLegendView);
+            ev.target.on("sourcedata", (e) => { if (e && e.isSourceLoaded) scheduleLegendView(); });
+            scheduleLegendView();
+            setMapReady(true);
+            zoomExtend();
+          }
+        }}
         onError={(e) => {
           const st = e && e.error && e.error.status;
           if (st === 401 || st === 403) setTileAuthError(true);

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs
+from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -34,6 +34,7 @@ app.include_router(export.router, prefix=f"{settings.API_V1_STR}/export", tags=[
 app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 app.include_router(features.router, prefix=f"{settings.API_V1_STR}/features", tags=["features"])
 app.include_router(prefs.router, prefix=f"{settings.API_V1_STR}/prefs", tags=["prefs"])
+app.include_router(update_geometry.router, prefix=f"{settings.API_V1_STR}/update", tags=["update"])
 
 @app.get("/")
 def root():
