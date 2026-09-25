@@ -435,6 +435,7 @@ const moveLayer = (key, dir) => {
   const [overlapInvalid, setOverlapInvalid] = useState(null);
   const [overlapBusy, setOverlapBusy] = useState(false);
   const [overlapErr, setOverlapErr] = useState("");
+  const [overlapSel, setOverlapSel] = useState(null); // selection id for exporting overlap results
   const [measureMode, setMeasureMode] = useState("length"); // 'length' | 'area'
   const [measureResult, setMeasureResult] = useState(null); // measureGeom result
   const [measureUnit, setMeasureUnit] = useState("auto"); // length: auto|m|km | area: auto|sqm|sqkm|feddan
@@ -936,6 +937,7 @@ const moveLayer = (key, dir) => {
     setOverlapPairs(null);
     setOverlapInvalid(null);
     setOverlapErr("");
+    setOverlapSel(null);
   };
 
   /* Same-layer overlap / self-intersection check (no drawn polygon needed). */
@@ -981,6 +983,39 @@ const moveLayer = (key, dir) => {
   const fmtArea = (sqm) => {
     const v = Number(sqm) || 0;
     return (Math.round(v * 10) / 10).toLocaleString("en-US", { maximumFractionDigits: 1 }) + " m²";
+  };
+  const exportOverlapResults = async () => {
+    if (!locationLayer || overlapBusy) return;
+    const reqs = new Set();
+    (overlapPairs || []).forEach((p) => {
+      ["feature1", "feature2"].forEach((k) => {
+        const pr = (p && p[k] && p[k].props) || {};
+        if (pr.Req_Number) reqs.add(String(pr.Req_Number));
+      });
+    });
+    (overlapInvalid || []).forEach((iv) => {
+      const pr = (iv && iv.props) || {};
+      if (pr.Req_Number) reqs.add(String(pr.Req_Number));
+    });
+    if (reqs.size === 0) {
+      setOverlapErr("No request numbers found in these results — nothing to export.");
+      return;
+    }
+    try {
+      const res = await axios.post(
+        "/api/v1/layers/selections",
+        { reqs: [...reqs] },
+        { headers: authHeaders() }
+      );
+      setOverlapSel(res.data.selection_id || null);
+      setExportLayers({ [locationLayer]: true });
+      setActiveTool("export");
+    } catch (err) {
+      setOverlapErr(
+        (err && err.response && err.response.data && err.response.data.detail) ||
+        (err && err.message) || "Failed to prepare export"
+      );
+    }
   };
   const fetchTable = async (page, filt, selId, table) => {
     if (!table) return;
@@ -1074,7 +1109,8 @@ const moveLayer = (key, dir) => {
     setExportError(null);
     try {
       const layers = layersCfg.map((l) => l.table).filter((k) => exportLayers[k]);
-      const payload = selection ? { layers, format: fmt, sel: selection.id } : { layers, format: fmt };
+      const selId = overlapSel || (selection ? selection.id : null);
+      const payload = selId ? { layers, format: fmt, sel: selId } : { layers, format: fmt };
       const token = localStorage.getItem("token");
       const res = await axios.post("/api/v1/export/run", payload, {
         headers: { Authorization: "Bearer " + token },
@@ -1340,7 +1376,7 @@ const moveLayer = (key, dir) => {
                 ))}
               </div>
             </div>
-            {selection && (
+            {(selection || overlapSel) && (
               <p className="text-[11px] text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-2 py-1">Filtered view will be exported.</p>
             )}
             <button onClick={() => serverExport(exportFormat)} disabled={exporting != null} className="w-full px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center justify-center">
@@ -1373,6 +1409,7 @@ const moveLayer = (key, dir) => {
                   setOverlapPairs(null);
                   setOverlapInvalid(null);
                   setOverlapErr("");
+                  setOverlapSel(null);
                 }}
                 className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
               >
@@ -1440,6 +1477,11 @@ const moveLayer = (key, dir) => {
                             ))}
                           </div>
                         </div>
+                      )}
+                      {(overlapPairs.length > 0 || overlapInvalid.length > 0) && (
+                        <button onClick={exportOverlapResults} disabled={overlapBusy} className="w-full px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                          <Download className="w-3.5 h-3.5" /> Export results via Export tool
+                        </button>
                       )}
                     </>
                   )}

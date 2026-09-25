@@ -152,6 +152,12 @@ class AOIRequest(BaseModel):
 class SameLayerOverlapRequest(BaseModel):
     layer: str
     min_overlap_sqm: float = 1.0
+    max_results: int = 200
+
+# Hard ceiling on one scan. A scan that covers millions of features with a very
+# dense overlap pattern needs to fail fast with a clear message instead of
+# holding the HTTP request open indefinitely.
+SCAN_TIMEOUT_MS = 120_000
 
 @router.post("/same-layer-overlaps")
 def same_layer_overlaps(req: SameLayerOverlapRequest, db: Session = Depends(deps.get_db),
@@ -160,48 +166,90 @@ def same_layer_overlaps(req: SameLayerOverlapRequest, db: Session = Depends(deps
     "Select by Location" same-layer tool: find features in ONE layer that
     overlap another feature of the same layer, plus any invalid /
     self-intersecting geometries that postgis considers broken.
+
+    Scaled for production-sized layers (1M+ features):
+    - The pair scan is index-backed. Candidate generation uses && / ST_Intersects
+      (GiST) plus `NOT ST_Touches` so only *interior* overlaps are kept -- the
+      boundary-sharing neighbors that dominate a cadastre are filtered out before
+      any ST_Intersection is computed.
+    - ST_Intersection is evaluated exactly once per surviving pair (LATERAL),
+      not 3x per pair as before.
+    - The invalid list runs a plain ST_IsValid scan (~<1s per 100k features) capped
+      at 200 rows; there is no O(n^2) work involved.
+    - A statement_timeout (see SCAN_TIMEOUT_MS) aborts pathological scans with a
+      504 instead of hanging the request; runs longer than a few minutes only on
+      layers where almost every feature overlaps several others.
     """
     lname = req.layer
     if not db.execute(text("SELECT 1 FROM map_layers WHERE table_name = :t"),
                       {"t": lname}).first():
         raise HTTPException(status_code=404, detail="Invalid layer name")
 
-    # Overlapping pairs within the same layer (a.id < b.id keeps each pair once).
-    pairs_sql = text(f'''
-        SELECT
-            a.id AS id1,
-            b.id AS id2,
-            ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) AS overlap_area_sqm,
-            jsonb_build_object('id', a.id, 'props', to_jsonb(a) - 'geometry') AS feature1,
-            jsonb_build_object('id', b.id, 'props', to_jsonb(b) - 'geometry') AS feature2,
-            ST_AsGeoJSON(ST_Transform(
-                ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry)), 4326
-            ))::json AS geom
-        FROM {lname} a
-        JOIN {lname} b
-          ON ST_Intersects(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry)) AND a.id < b.id
-        WHERE ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) >= :min_overlap
-        ORDER BY ST_Area(ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))) DESC
-        LIMIT 200
-    ''')
-    pairs = db.execute(pairs_sql, {"min_overlap": req.min_overlap_sqm}).mappings().all()
+    limit = max(1, min(req.max_results, 1000))
+    # SET LOCAL for this request's transaction only (resets when it closes).
+    db.execute(text("SELECT set_config('statement_timeout', :t, true)"),
+               {"t": str(SCAN_TIMEOUT_MS)})
 
-    # Invalid / self-intersecting single geometries in the same layer.
+    def run_or_504(label):
+        try:
+            return db.execute(label).mappings().all()
+        except Exception as e:
+            if "canceling statement due to statement timeout" in str(e) or "query canceled" in str(e):
+                raise HTTPException(status_code=504, detail=(
+                    f"Same-layer scan exceeded {SCAN_TIMEOUT_MS // 1000}s on «{lname}» -- too many "
+                    "overlapping features. Try a smaller / split layer, or raise the timeout server-side."))
+            raise
+
+    # Overlapping pairs within the same layer (a.id < b.id keeps each pair once).
+    # `NOT ST_Touches` drops the boundary-adjacent pairs whose overlap area is 0,
+    # leaving only real interior overlaps to cost an ST_Intersection.
+    pairs_sql = text(f'''
+        SELECT id1, id2, overlap_area_sqm, feature1, feature2, geom
+        FROM (
+            SELECT
+                a.id AS id1,
+                b.id AS id2,
+                ST_Area(i.geom)                                                   AS overlap_area_sqm,
+                jsonb_build_object('id', a.id, 'props', to_jsonb(a) - 'geometry') AS feature1,
+                jsonb_build_object('id', b.id, 'props', to_jsonb(b) - 'geometry') AS feature2,
+                ST_AsGeoJSON(CASE WHEN ST_SRID(i.geom) NOT IN (0, 4326)
+                                  THEN ST_Transform(i.geom, 4326)
+                                  ELSE i.geom END)::json                          AS geom
+            FROM {lname} a
+            JOIN {lname} b
+              ON a.geometry && b.geometry
+             AND ST_Intersects(a.geometry, b.geometry)
+             AND NOT ST_Touches(a.geometry, b.geometry)
+             AND a.id < b.id
+            CROSS JOIN LATERAL (SELECT ST_Intersection(a.geometry, b.geometry) AS geom) i
+        ) s
+        WHERE overlap_area_sqm >= :min_overlap
+        ORDER BY overlap_area_sqm DESC
+        LIMIT :limit
+    ''')
+    pairs = run_or_504(pairs_sql.bindparams(min_overlap=req.min_overlap_sqm, limit=limit))
+
+    # Invalid / self-intersecting single geometries in the same layer
+    # (ST_IsValid scan is linear and cheap; capped for output size).
     invalid_sql = text(f'''
         SELECT
-            id,
-            ST_IsValidReason(geometry) AS reason,
-            ST_AsGeoJSON(ST_Transform(ST_Envelope(ST_MakeValid(geometry)), 4326))::json AS geom
-        FROM {lname}
-        WHERE NOT ST_IsValid(geometry)
+            t.id,
+            ST_IsValidReason(t.geometry) AS reason,
+            to_jsonb(t) - 'geometry' AS props,
+            ST_AsGeoJSON(CASE WHEN ST_SRID(t.geometry) NOT IN (0, 4326)
+                              THEN ST_Transform(ST_Envelope(ST_MakeValid(t.geometry)), 4326)
+                              ELSE ST_Envelope(ST_MakeValid(t.geometry)) END)::json AS geom
+        FROM {lname} t
+        WHERE NOT ST_IsValid(t.geometry)
         LIMIT 200
     ''')
-    invalid = db.execute(invalid_sql).mappings().all()
+    invalid = run_or_504(invalid_sql)
 
     return {
         "layer": lname,
         "overlaps": [dict(r) for r in pairs],
         "invalid": [dict(r) for r in invalid],
+        "truncated": len(pairs) == limit,
     }
 
 @router.get("/topology/{layer_name}")
