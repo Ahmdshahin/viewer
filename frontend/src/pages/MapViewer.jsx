@@ -449,7 +449,6 @@ const moveLayer = (key, dir) => {
   const [measureUnit, setMeasureUnit] = useState("auto"); // length: auto|m|km | area: auto|sqm|sqkm|feddan
   const [measureSegs, setMeasureSegs] = useState([]); // [{ mid:[lng,lat], meters }]
   const [ctxMenu, setCtxMenu] = useState(null); // {x, y, lng, lat} right-click menu
-  const [ctxCopied, setCtxCopied] = useState(false);
   const [queryLayer, setQueryLayer] = useState(null);
   const [queryField, setQueryField] = useState("Req_Number");
   const [queryOp, setQueryOp] = useState("contains");
@@ -1086,8 +1085,7 @@ const moveLayer = (key, dir) => {
       document.execCommand("copy");
       document.body.removeChild(ta);
     }
-    setCtxCopied(true);
-    setTimeout(() => setCtxCopied(false), 1400);
+    setCtxMenu(null);
   };
 
   const fmtCoord = (lng, lat) => `${(Math.round(lng * 1e6) / 1e6).toFixed(6)}, ${(Math.round(lat * 1e6) / 1e6).toFixed(6)}`;
@@ -1328,7 +1326,10 @@ const moveLayer = (key, dir) => {
               </button>
             </div>
           </div>
-          <div className="p-3 space-y-3">
+          <div
+            className={"p-3 space-y-3" + (orderedMeta.length > 4 ? " overflow-y-auto" : "")}
+            style={orderedMeta.length > 4 ? { maxHeight: "min(31rem, calc(100vh - 16rem))" } : undefined}
+          >
             {orderedMeta.map((m) => {
               const st = layerStats(m.table);
               return (
@@ -2037,6 +2038,7 @@ const moveLayer = (key, dir) => {
           className="absolute z-50 bg-white rounded-lg shadow-xl border border-gray-200 text-xs select-none"
           style={{ left: ctxMenu.x, top: ctxMenu.y, width: 230 }}
           onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
           <p className="px-3 pt-2 pb-1 font-mono text-[11px] text-gray-600 border-b border-gray-100">
@@ -2047,7 +2049,7 @@ const moveLayer = (key, dir) => {
               onClick={() => copyCoords(fmtCoord(ctxMenu.lng, ctxMenu.lat))}
               className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-800"
             >
-              {ctxCopied ? "✓ Copied!" : "Copy coordinates (lon, lat)"}
+              Copy coordinates (lon, lat)
             </button>
             <button
               onClick={() => copyCoords(fmtCoord(ctxMenu.lat, ctxMenu.lng))}
