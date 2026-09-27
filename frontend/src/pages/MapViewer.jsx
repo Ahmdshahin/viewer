@@ -179,6 +179,14 @@ const MVT_NAME = { lands: "land", eshghalat: "eshghalat", points: "point" };
 const apiLayer = (k) => k;
 
 // [minLng, minLat, maxLng, maxLat] of any GeoJSON geometry (or null).
+const toDMS = (value, pos, neg) => {
+  const abs = Math.abs(value || 0);
+  const d = Math.floor(abs);
+  const mf = (abs - d) * 60;
+  const m = Math.floor(mf);
+  const s = Math.round((mf - m) * 60);
+  return `${d}°${String(m).padStart(2, "0")}′${String(s).padStart(2, "0")}″${value >= 0 ? pos : neg}`;
+};
 const geomBounds = (geometry) => {
   if (!geometry || !geometry.coordinates) return null;
   let minx = 180, miny = 90, maxx = -180, maxy = -90;
@@ -440,6 +448,8 @@ const moveLayer = (key, dir) => {
   const [measureResult, setMeasureResult] = useState(null); // measureGeom result
   const [measureUnit, setMeasureUnit] = useState("auto"); // length: auto|m|km | area: auto|sqm|sqkm|feddan
   const [measureSegs, setMeasureSegs] = useState([]); // [{ mid:[lng,lat], meters }]
+  const [ctxMenu, setCtxMenu] = useState(null); // {x, y, lng, lat} right-click menu
+  const [ctxCopied, setCtxCopied] = useState(false);
   const [queryLayer, setQueryLayer] = useState(null);
   const [queryField, setQueryField] = useState("Req_Number");
   const [queryOp, setQueryOp] = useState("contains");
@@ -1058,6 +1068,42 @@ const moveLayer = (key, dir) => {
       }
     }
   }, [activeTool, drawInstance]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") setCtxMenu(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const copyCoords = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCtxCopied(true);
+    setTimeout(() => setCtxCopied(false), 1400);
+  };
+
+  const fmtCoord = (lng, lat) => `${(Math.round(lng * 1e6) / 1e6).toFixed(6)}, ${(Math.round(lat * 1e6) / 1e6).toFixed(6)}`;
+
+  const openCtxMenu = (e) => {
+    if (e && e.originalEvent) e.originalEvent.preventDefault();
+    const p = e.point || { x: 0, y: 0 };
+    const mw = 250, mh = 170;
+    setCtxMenu({
+      x: Math.max(4, Math.min(p.x, window.innerWidth - mw)),
+      y: Math.max(4, Math.min(p.y, window.innerHeight - mh)),
+      lng: e.lngLat && e.lngLat.lng,
+      lat: e.lngLat && e.lngLat.lat,
+    });
+    setCtxCopied(false);
+  };
 
   const onClick = (event) => {
     if (activeTool === 'polyselect' || activeTool === 'print') return;
@@ -1985,6 +2031,40 @@ const moveLayer = (key, dir) => {
         </div>
       )}
 
+      {/* Right-click coordinate menu */}
+      {ctxMenu && ctxMenu.lng != null && ctxMenu.lat != null && (
+        <div
+          className="absolute z-50 bg-white rounded-lg shadow-xl border border-gray-200 text-xs select-none"
+          style={{ left: ctxMenu.x, top: ctxMenu.y, width: 230 }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <p className="px-3 pt-2 pb-1 font-mono text-[11px] text-gray-600 border-b border-gray-100">
+            {ctxMenu.lng.toFixed(6)}, {ctxMenu.lat.toFixed(6)}
+          </p>
+          <div className="py-1">
+            <button
+              onClick={() => copyCoords(fmtCoord(ctxMenu.lng, ctxMenu.lat))}
+              className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-800"
+            >
+              {ctxCopied ? "✓ Copied!" : "Copy coordinates (lon, lat)"}
+            </button>
+            <button
+              onClick={() => copyCoords(fmtCoord(ctxMenu.lat, ctxMenu.lng))}
+              className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-800"
+            >
+              Copy coordinates (lat, lon)
+            </button>
+            <button
+              onClick={() => copyCoords(`${toDMS(ctxMenu.lng, "E", "W")}, ${toDMS(ctxMenu.lat, "N", "S")}`)}
+              className="w-full text-left px-3 py-1.5 hover:bg-gray-50 text-gray-800"
+            >
+              Copy DMS (lon, lat)
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Cursor coordinates */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-white/95 rounded shadow px-2 py-1 text-xs font-mono text-gray-700 border border-gray-200 whitespace-nowrap flex items-center gap-1 pointer-events-none">
         <span className="px-1">{scaleText()}</span>
@@ -2045,10 +2125,11 @@ const moveLayer = (key, dir) => {
           if (st === 401 || st === 403) setTileAuthError(true);
         }}
         onMouseMove={(e) => setCursor(e.lngLat)}
-        onMove={(e) => setMapZoom(e.viewState.zoom)}
+        onMove={(e) => { setCtxMenu(null); setMapZoom(e.viewState.zoom); }}
         mapStyle={BASEMAPS[basemap]}
         interactiveLayerIds={interactiveLayerIds}
-        onClick={onClick}
+        onClick={(e) => { setCtxMenu(null); onClick(e); }}
+        onContextMenu={openCtxMenu}
       >
         <DrawControl
           onInit={setDrawInstance}

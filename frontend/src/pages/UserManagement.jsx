@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { UserPlus, Shield, User, CheckCircle, XCircle, Pencil, Save, X, KeyRound, Power, Trash2 } from "lucide-react";
+import { UserPlus, Shield, User, CheckCircle, XCircle, Pencil, Save, X, KeyRound, Power, Trash2, Search } from "lucide-react";
 import { useConfirm } from "../components/ConfirmModal";
 
 export default function UserManagement() {
@@ -13,6 +13,8 @@ export default function UserManagement() {
   const [pwUser, setPwUser] = useState(null);
   const [pwPassword, setPwPassword] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
+  const [userFilter, setUserFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [askConfirm, confirmModal] = useConfirm();
 
   const PAGES = [
@@ -170,6 +172,13 @@ export default function UserManagement() {
     }
   };
 
+  const filteredUsers = users.filter((u) => {
+    const q = userFilter.trim().toLowerCase();
+    if (q && !(u.username || "").toLowerCase().includes(q) && !(u.full_name || "").toLowerCase().includes(q)) return false;
+    if (roleFilter && u.role !== roleFilter) return false;
+    return true;
+  });
+
   return (
     <div className="p-8 w-full">
       <div className="flex justify-between items-center mb-8">
@@ -237,9 +246,33 @@ export default function UserManagement() {
 
         {/* Users List */}
         <div className="lg:col-span-3">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-gray-200">
+              <p className="text-sm font-medium text-gray-600">{filteredUsers.length} of {users.length} user(s)</p>
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search by name or username..."
+                  value={userFilter}
+                  onChange={(e) => setUserFilter(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 w-64 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <select
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+                className="px-2.5 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+              >
+                <option value="">All roles</option>
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="overflow-auto max-h-[calc(100vh-10rem)]">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
@@ -249,7 +282,7 @@ export default function UserManagement() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 transition">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -378,8 +411,16 @@ export default function UserManagement() {
                     </td>
                   </tr>
                 )}
+                {users.length > 0 && filteredUsers.length === 0 && (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                      No users match your search.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
