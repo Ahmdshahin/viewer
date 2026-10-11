@@ -13,7 +13,7 @@ import re
 from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -988,6 +988,13 @@ class RequestUpdate(BaseModel):
     raw_files: Optional[str] = None
     base_map: Optional[str] = None
 
+    @field_validator("area_value", mode="before")
+    @classmethod
+    def _empty_area_to_none(cls, v):
+        # The edit form sends "" when the number input is cleared; an omitted
+        # key still means "leave as-is" (distinguished via model_fields_set).
+        return None if v == "" else v
+
 
 class TransitionIn(BaseModel):
     to: str
@@ -1616,6 +1623,9 @@ def update_request(
     set_if("phone", body.phone)
     set_if("address", body.address)
     set_if("area_value", body.area_value)
+    if "area_value" in (body.model_fields_set or set()) and body.area_value is None and r.area_value is not None:
+        r.area_value = None
+        changes["area_value"] = None
     set_if("unit_type", body.unit_type)
     set_if("survey_status", body.survey_status)
     set_if("survey_comment", body.survey_comment)

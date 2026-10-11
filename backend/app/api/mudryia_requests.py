@@ -459,6 +459,9 @@ def update_mudryia_request(
     set_if("phone", body.phone)
     set_if("address", body.address)
     set_if("area_value", body.area_value)
+    if "area_value" in (body.model_fields_set or set()) and body.area_value is None and r.area_value is not None:
+        r.area_value = None
+        changes["area_value"] = None
     set_if("unit_type", body.unit_type)
     set_if("survey_status", body.survey_status)
     set_if("survey_comment", body.survey_comment)

@@ -150,7 +150,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const [filters, setFilters] = useState(readURLFilters);
   const [dq, setDq] = useState(filters.q);
   const [page, setPage] = useState(() => { try { return Math.max(1, Number(new URLSearchParams(window.location.search).get("page")) || 1); } catch (e) { return 1; } });
-  const [perPage, setPerPage] = useState(() => { try { return Number(new URLSearchParams(window.location.search).get("per_page")) || 50; } catch (e) { return 50; } });
+  const [perPage, setPerPage] = useState(() => { try { const v = Number(new URLSearchParams(window.location.search).get("per_page")) || 50; return Math.min(500, Math.max(10, v)); } catch (e) { return 50; } });
   const [pages, setPages] = useState(1);
   const [dataTotal, setDataTotal] = useState(0);
   const [sort, setSort] = useState(() => {
