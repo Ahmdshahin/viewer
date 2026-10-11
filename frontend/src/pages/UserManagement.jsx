@@ -23,6 +23,12 @@ export default function UserManagement() {
     { key: "dashboard", label: "Dash" },
     { key: "users", label: "Users" },
     { key: "database", label: "DB" },
+    { key: "import", label: "Import" },
+    { key: "requests", label: "Req" },
+  { key: "mudryia_requests", label: "Mud" },
+    { key: "tracking", label: "Track" },
+    { key: "lookups", label: "Lookups" },
+    { key: "reports", label: "Reports" },
   ];
 
   const togglePage = async (user, page) => {

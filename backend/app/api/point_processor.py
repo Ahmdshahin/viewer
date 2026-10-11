@@ -1,4 +1,4 @@
-"""Point-layer-only Data Processor router.
+﻿"""Point-layer-only Data Processor router.
 
 Mirrors the main ``processor`` wizard but handles exactly one layer: the
 Point geometry imported into a dedicated GeoPackage, then migrated into the
@@ -36,7 +36,10 @@ from geospatial_pipeline import PointOnlyPipeline
 router = APIRouter()
 
 # Point tool defaults: fully separated from the main pipeline.
-DEFAULT_INPUT_DIR = r"D:\Systems\Point_Files"
+# The input directory is chosen by the user in the point processor page and has
+# no machine-specific default: an unset path must fail loudly rather than
+# silently falling back to a folder that only exists on the writing machine.
+NO_INPUT_DIR = "Input directory is not set. Enter a path in the point processor page."
 DEFAULT_OUTPUT_GPKG = os.path.join(BASE_DIR, "Point_Database.gpkg")
 DEFAULT_DONE_DIR = os.path.join(BASE_DIR, "Point_Done")
 DEFAULT_CONFLICTS = os.path.join(BASE_DIR, "point_conflicts.json")
@@ -121,7 +124,17 @@ def scan_directory(
     done_dir: Optional[str] = Query(None),
 ):
     try:
-        current_input_dir = input_path if input_path else DEFAULT_INPUT_DIR
+        current_input_dir = (input_path or "").strip()
+        if not current_input_dir:
+            return {
+                "total_pending": 0,
+                "pending_folders": [],
+                "total_done": 0,
+                "done_folders": [],
+                "total_conflicts": 0,
+                "conflicts": [],
+                "error": NO_INPUT_DIR,
+            }
         current_conflicts = conflicts_file if conflicts_file else DEFAULT_CONFLICTS
         current_done_dir = done_dir if done_dir else DEFAULT_DONE_DIR
 
@@ -141,6 +154,13 @@ def scan_directory(
         done_folders = []
         if os.path.exists(current_done_dir):
             done_folders = sorted([f for f in os.listdir(current_done_dir) if os.path.isdir(os.path.join(current_done_dir, f))])
+
+        # Archiving copies the shapefiles into Done and leaves the original folder
+        # in place, so every processed folder is still listed in the input dir.
+        # Exclude the ones already archived, otherwise they reappear as "Ready"
+        # forever and get re-imported on the next run.
+        archived = {os.path.normcase(f) for f in done_folders}
+        ready_folders = [f for f in folders if os.path.normcase(f) not in archived]
 
         conflicts = []
         if os.path.exists(current_conflicts):
@@ -171,8 +191,8 @@ def scan_directory(
         conflicts = visible
 
         return {
-            "total_pending": len(folders),
-            "pending_folders": folders[:100],
+            "total_pending": len(ready_folders),
+            "pending_folders": ready_folders[:100],
             "total_done": len(done_folders),
             "done_folders": done_folders[:500],
             "total_conflicts": len(conflicts),
@@ -189,8 +209,11 @@ def run_pipeline(request: RunPipelineRequest, background_tasks: BackgroundTasks)
     if point_pipeline_progress["status"] == "running":
         raise HTTPException(status_code=400, detail="Point pipeline is already running")
 
+    current_input_dir = (request.input_path or "").strip()
+    if not current_input_dir:
+        raise HTTPException(status_code=400, detail=NO_INPUT_DIR)
+
     try:
-        current_input_dir = request.input_path if request.input_path else DEFAULT_INPUT_DIR
         done_dir = request.done_dir if request.done_dir else DEFAULT_DONE_DIR
         conflicts_file = request.conflicts_file if request.conflicts_file else DEFAULT_CONFLICTS
         output_gpkg = request.output_gpkg if request.output_gpkg else DEFAULT_OUTPUT_GPKG
@@ -207,51 +230,66 @@ def run_pipeline(request: RunPipelineRequest, background_tasks: BackgroundTasks)
 
 @router.get("/browse")
 def browse_path(type: str = Query("folder"), title: str = Query("Select Path"), default_ext: str = Query("*.json")):
+    """Show a native path picker on the machine running the server.
+
+    The dialog runs in a child process so a blocked picker cannot freeze the
+    Uvicorn worker. CREATE_NO_WINDOW suppresses the console window that Windows
+    would otherwise attach to the child; the Tk dialog is a separate window and
+    is unaffected. The picker is therefore only usable by someone at the server
+    itself - a remote browser triggers the dialog on the server's desktop and
+    waits until the timeout below.
+    """
+    script = """import sys
+import tkinter as tk
+from tkinter import filedialog
+
+mode, title, default_ext = sys.argv[1], sys.argv[2], sys.argv[3]
+root = tk.Tk()
+root.attributes("-topmost", True)
+root.withdraw()
+if mode == "folder":
+    path = filedialog.askdirectory(title=title)
+elif mode == "save_file":
+    path = filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+else:
+    path = filedialog.askopenfilename(title=title)
+print(path)
+"""
+    script_path = None
     try:
         import tempfile
-        script_path = os.path.join(tempfile.gettempdir(), "tk_browse_point.py")
 
-        if type == "folder":
-            tk_code = f'''import tkinter as tk
-from tkinter import filedialog
-import sys
-root = tk.Tk()
-root.attributes('-topmost', True)
-root.withdraw()
-path = filedialog.askdirectory(title="{title}")
-print(path)
-'''
-        elif type == "save_file":
-            tk_code = f'''import tkinter as tk
-from tkinter import filedialog
-import sys
-root = tk.Tk()
-root.attributes('-topmost', True)
-root.withdraw()
-path = filedialog.asksaveasfilename(title="{title}", defaultextension="{default_ext}")
-print(path)
-'''
-        else:
-            tk_code = f'''import tkinter as tk
-from tkinter import filedialog
-import sys
-root = tk.Tk()
-root.attributes('-topmost', True)
-root.withdraw()
-path = filedialog.askopenfilename(title="{title}")
-print(path)
-'''
+        # Unique per call: two users browsing at once must not share a file.
+        fd, script_path = tempfile.mkstemp(prefix="tk_browse_point_", suffix=".py")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(script)
 
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(tk_code)
-
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
-        selected_path = result.stdout.strip()
-
-        return {"path": selected_path}
+        mode = type if type in ("folder", "save_file") else "open_file"
+        try:
+            result = subprocess.run(
+                [sys.executable, script_path, mode, title, default_ext],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(
+                status_code=408,
+                detail="Path picker timed out. It can only be used from the machine running the server - type the path instead.",
+            )
+        return {"path": (result.stdout or "").strip()}
+    except HTTPException:
+        raise
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=repr(e))
+    finally:
+        if script_path and os.path.exists(script_path):
+            try:
+                os.unlink(script_path)
+            except OSError:
+                pass
 
 
 class DismissConflictRequest(BaseModel):
@@ -287,7 +325,7 @@ class ClearConflictsRequest(BaseModel):
 @router.post("/conflicts/clear")
 def clear_conflicts(request: ClearConflictsRequest = None, conflicts_file: Optional[str] = Query(None),
                     db: Session = Depends(_deps.get_db), token: Optional[str] = Depends(_opt_scheme)):
-    """Dismiss point conflict entries — all of them, or only one problem group via reason."""
+    """Dismiss point conflict entries â€” all of them, or only one problem group via reason."""
     try:
         current_conflicts = conflicts_file if conflicts_file else DEFAULT_CONFLICTS
         entries = _read_conflicts(current_conflicts)
@@ -312,7 +350,9 @@ def delete_input_folder(folder_name: str = Query(...), input_path: Optional[str]
                         db: Session = Depends(_deps.get_db), token: Optional[str] = Depends(_opt_scheme)):
     """Permanently delete an input folder and purge its stale point conflict entries."""
     try:
-        current_input_dir = input_path if input_path else DEFAULT_INPUT_DIR
+        current_input_dir = (input_path or "").strip()
+        if not current_input_dir:
+            raise HTTPException(status_code=400, detail=NO_INPUT_DIR)
         current_conflicts = conflicts_file if conflicts_file else DEFAULT_CONFLICTS
         base = os.path.realpath(current_input_dir)
         target = os.path.realpath(os.path.join(base, folder_name))
@@ -352,7 +392,9 @@ def resolve_duplicate(request: ResolveDuplicateRequest,
       GPKG, then import this folder's point files instead (append + archive).
     """
     try:
-        current_input_dir = request.input_path if request.input_path else DEFAULT_INPUT_DIR
+        current_input_dir = (request.input_path or "").strip()
+        if not current_input_dir:
+            raise HTTPException(status_code=400, detail=NO_INPUT_DIR)
         done_dir = request.done_dir if request.done_dir else DEFAULT_DONE_DIR
         current_conflicts = request.conflicts_file if request.conflicts_file else DEFAULT_CONFLICTS
         output_gpkg = request.output_gpkg if request.output_gpkg else DEFAULT_OUTPUT_GPKG

@@ -9,6 +9,51 @@ import warnings
 # Suppress PyPROJ and GeoPandas warnings for cleaner output
 warnings.filterwarnings('ignore')
 
+# Layers this pipeline writes. Used as a last resort if a GeoPackage cannot be
+# enumerated at all.
+GPKG_LAYERS = ("Land", "Eshghalat", "Point")
+
+
+def _gpkg_layers(path):
+    """List the layer names in a GeoPackage.
+
+    pyogrio and fiona are both optional and neither is present in every
+    environment, so try each in turn rather than depending on one import.
+    """
+    try:
+        import pyogrio
+        info = pyogrio.list_layers(path)
+        if hasattr(info, "columns") and "name" in info.columns:
+            return info["name"].tolist()
+        return [row[0] for row in info]
+    except Exception:
+        pass
+    try:
+        import fiona
+        return list(fiona.listlayers(path))
+    except Exception:
+        pass
+    return list(GPKG_LAYERS)
+
+
+def _gpkg_fields(path, layer):
+    """Return the column names of one GeoPackage layer, or [] if unreadable."""
+    try:
+        import pyogrio
+        meta = pyogrio.read_info(path, layer=layer)
+        fields = meta.get("fields")
+        if fields:
+            return [str(f) for f in fields]
+    except Exception:
+        pass
+    try:
+        import fiona
+        with fiona.open(path, layer=layer) as src:
+            return list(src.schema.get("properties", {}))
+    except Exception:
+        return []
+
+
 class GeospatialDataPipeline:
     def __init__(self, input_dir, done_dir, conflicts_file, output_gpkg, progress_callback=None):
         self.input_dir = input_dir
@@ -79,29 +124,29 @@ class GeospatialDataPipeline:
     def load_existing_req_numbers(self):
         """Return the set of Req_Number values already stored in the output GPKG.
 
-        Used to detect folders whose request was processed in a previous run.
-        Fail-open: any read error yields an empty set (process as before).
+        Used to detect folders whose request was processed in a previous run, so
+        it must never come back empty just because an optional reader is absent:
+        pyogrio is not installed in every environment, and silently skipping the
+        read would turn duplicate protection off and re-import geometry that is
+        already there. Try pyogrio first, then fiona, then a plain read.
         """
         existing = set()
         if not os.path.exists(self.output_gpkg):
             return existing
         try:
-            import pyogrio
-            try:
-                info = pyogrio.list_layers(self.output_gpkg)
-                # pyogrio>=0.5 returns a DataFrame, older versions a list of tuples
-                if hasattr(info, "columns") and "name" in info.columns:
-                    layers = info["name"].tolist()
-                else:
-                    layers = [row[0] for row in info]
-            except Exception:
-                layers = ["Land", "Eshghalat", "Point"]
+            layers = _gpkg_layers(self.output_gpkg)
             for layer in layers:
-                try:
-                    gdf = gpd.read_file(self.output_gpkg, layer=layer, columns=["Req_Number"], ignore_geometry=True, engine="pyogrio")
-                except Exception:
+                gdf = None
+                for kwargs in (
+                    {"columns": ["Req_Number"], "ignore_geometry": True},
+                    {},
+                ):
                     try:
-                        gdf = gpd.read_file(self.output_gpkg, layer=layer, engine="pyogrio")
+                        gdf = gpd.read_file(self.output_gpkg, layer=layer, **kwargs)
+                        break
+                    except TypeError:
+                        # older geopandas without columns=/ignore_geometry=
+                        continue
                     except Exception:
                         continue
                 if gdf is None or "Req_Number" not in gdf.columns:
@@ -362,27 +407,20 @@ class GeospatialDataPipeline:
         if os.path.exists(self.output_gpkg):
             # Conform to the existing layer schema first: layers written by
             # older runs (or other tools) may have different columns, and an
-            # exact schema match is required for appending.
-            try:
-                import pyogrio
-                info = pyogrio.list_layers(self.output_gpkg)
-                if hasattr(info, "columns") and "name" in info.columns:
-                    names = info["name"].tolist()
-                else:
-                    names = [row[0] for row in info]
-                if table_name in names:
-                    meta = pyogrio.read_info(self.output_gpkg, layer=table_name)
-                    fields = [str(f) for f in meta.get("fields", [])]
-                    if fields:
-                        for c in fields:
-                            if c not in gdf.columns:
-                                gdf[c] = None
-                        keep = [c for c in fields if c in gdf.columns]
-                        if "geometry" not in keep:
-                            keep = keep + ["geometry"]
-                        gdf = gdf[keep]
-            except Exception:
-                pass
+            # exact schema match is required for appending. Skipping this step
+            # makes GDAL fail the append with a bare "NULL pointer error", so it
+            # must not be skipped just because a reader library is missing.
+            names = _gpkg_layers(self.output_gpkg)
+            if table_name in names:
+                fields = _gpkg_fields(self.output_gpkg, table_name)
+                if fields:
+                    for c in fields:
+                        if c not in gdf.columns:
+                            gdf[c] = None
+                    keep = [c for c in fields if c in gdf.columns]
+                    if "geometry" not in keep:
+                        keep = keep + ["geometry"]
+                    gdf = gdf[keep]
             gdf.to_file(self.output_gpkg, layer=table_name, driver="GPKG", mode="a")
         else:
             gdf.to_file(self.output_gpkg, layer=table_name, driver="GPKG")

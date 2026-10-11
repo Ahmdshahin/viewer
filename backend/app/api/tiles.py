@@ -37,6 +37,19 @@ _DATE_TYPES = {"date", "timestamp without time zone", "timestamp with time zone"
 
 _info_cache: Dict[str, dict] = {}
 
+# Which request ledger a geometry table links to. The cadastral layers point at
+# the company `requests` ledger; the mudryia point layer points at its own
+# `mudryia_requests` ledger. Kept in one place so the tile, rows and stats
+# queries can never disagree about where a layer's status comes from.
+LEDGER_BY_LAYER: Dict[str, str] = {
+    "mudryia": "mudryia_requests",
+}
+DEFAULT_LEDGER = "requests"
+
+
+def ledger_for(layer_name: str) -> str:
+    return LEDGER_BY_LAYER.get(layer_name, DEFAULT_LEDGER)
+
 
 class Cond(BaseModel):
     field: str
@@ -157,21 +170,34 @@ def get_tile(layer_name: str, z: int, x: int, y: int,
     # No geometric simplification at any zoom: parcels are often smaller than
     # a generalization tolerance, which collapses them to nothing and empties
     # overview tiles. Tiles stay fast via clipping + binary encoding instead.
-    geom_expr = f"ST_Transform(ST_MakeValid({G}), 3857)"
+    # The geometry table is aliased `t` so the optional ledger join can add
+    # request status columns without ambiguous-column errors.
+    geom_expr = f"ST_Transform(ST_MakeValid(t.{G}), 3857)"
 
-    where = f"ST_Intersects({G}, ST_Transform(ST_TileEnvelope(:z, :x, :y), {info['srid']}))"
+    where = f"ST_Intersects(t.{G}, ST_Transform(ST_TileEnvelope(:z, :x, :y), {info['srid']}))"
     params: Dict = {"z": z, "x": x, "y": y}
     if reqs is not None:
-        where += ' AND "Req_Number" = ANY(:reqs)'
+        where += ' AND t."Req_Number" = ANY(:reqs)'
         params["reqs"] = reqs
+
+    # When the geometry table carries Req_Number, join its request ledger so
+    # the tile (and therefore the identify popup + status coloring) also gets
+    # the current lifecycle status without extra round-trips.
+    join_sql = ""
+    status_props = ""
+    if _has_col(info, "Req_Number"):
+        ledger = _q(ledger_for(layer_name))
+        join_sql = f' LEFT JOIN {ledger} r ON r."Req_Number" = t."Req_Number"'
+        status_props = 'r."Request_Status" AS "Request_Status", r."Survey_Status" AS "Survey_Status", '
 
     # Every attribute column is shipped in the tile so the identify popup can
     # show complete information without extra requests (tables here are small).
-    mvt_props = ", ".join([_q(c) for c in _data_cols(info)])
+    mvt_props = ", ".join([f"t.{_q(c)}" for c in _data_cols(info)])
     sql = text(f"""
         SELECT ST_AsMVT(q, :lname, 4096, 'geom') FROM (
-          SELECT {mvt_props + (", " if mvt_props else "")}ST_AsMVTGeom({geom_expr}, ST_TileEnvelope(:z, :x, :y), 4096, 64, true) AS geom
-          FROM {_q(layer_name)}
+          SELECT {status_props}{mvt_props + (", " if mvt_props else "")}ST_AsMVTGeom({geom_expr}, ST_TileEnvelope(:z, :x, :y), 4096, 64, true) AS geom
+          FROM {_q(layer_name)} t
+          {join_sql}
           WHERE {where}
         ) q;
     """)
@@ -225,12 +251,18 @@ def layer_stats(layer_name: str, sel: Optional[str] = Query(None),
     }
 
 
+# Sentinel used by the "Other / no request" legend entry. It cannot collide with
+# a real status, and maps to "no matching ledger row / no status recorded".
+OTHER_STATUS = "__other__"
+
+
 @router.get("/{layer_name}/rows")
 def layer_rows(layer_name: str,
                limit: int = Query(50, ge=1, le=500),
                offset: int = Query(0, ge=0),
                q: str = Query(""),
                sel: Optional[str] = Query(None),
+               status: List[str] = Query(default=[]),
                db: Session = Depends(deps.get_db),
                current_user: User = Depends(deps.get_current_user)):
     info = resolve_table(db, layer_name)
@@ -238,7 +270,19 @@ def layer_rows(layer_name: str,
     cols = _data_cols(info)
     if not cols:
         raise HTTPException(status_code=400, detail=f"Table {layer_name} has no attribute columns")
-    select_list = ", ".join([_q(c) for c in cols])
+    has_req = _has_col(info, "Req_Number")
+
+    # Mirror the tile query's ledger join so the attribute table can show and
+    # filter on the same Request_Status the map colours by.
+    from_sql = f"{_q(layer_name)} AS t"
+    join_sql = ""
+    status_props = ""
+    if has_req:
+        join_sql = f'LEFT JOIN {_q(ledger_for(layer_name))} r ON r."Req_Number" = t."Req_Number"'
+        status_props = 'r."Request_Status" AS "Request_Status", r."Survey_Status" AS "Survey_Status", '
+
+    select_list = ", ".join([f"t.{_q(c)}" for c in cols])
+    select_list = status_props + select_list
     order_col = "id" if "id" in cols else cols[0]
 
     conds, params = [], {}
@@ -247,31 +291,52 @@ def layer_rows(layer_name: str,
         reqs = selections.get_selection(sel)
         if reqs is None:
             raise HTTPException(status_code=404, detail="Selection expired, please re-select")
-        conds.append('"Req_Number" = ANY(:reqs)')
+        conds.append('t."Req_Number" = ANY(:reqs)')
         params["reqs"] = reqs
     if q:
         if _has_col(info, "Req_Number") and _has_col(info, "Owner_Name"):
-            conds.append('("Req_Number" ILIKE :q OR "Owner_Name" ILIKE :q)')
+            conds.append('(t."Req_Number" ILIKE :q OR t."Owner_Name" ILIKE :q)')
             params["q"] = f"%{q}%"
         elif _has_col(info, "Req_Number"):
-            conds.append('"Req_Number" ILIKE :q')
+            conds.append('t."Req_Number" ILIKE :q')
             params["q"] = f"%{q}%"
         else:
             raise HTTPException(status_code=400, detail="Text search needs a Req_Number column")
+    if status:
+        if not has_req:
+            raise HTTPException(status_code=400,
+                                detail=f"Layer {layer_name} has no request status")
+        known = [s for s in status if s != OTHER_STATUS]
+        want_other = OTHER_STATUS in status
+        parts = []
+        if known:
+            parts.append('r."Request_Status" = ANY(:st)')
+            params["st"] = known
+        if want_other:
+            parts.append('(r."Req_Number" IS NULL OR r."Request_Status" IS NULL '
+                         "OR r.\"Request_Status\" = '')")
+        if not parts:
+            raise HTTPException(status_code=400, detail="No valid status filter supplied")
+        conds.append("(" + " OR ".join(parts) + ")")
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
-    count_params = {k: v for k, v in params.items() if k in ("reqs", "q")}
+    count_params = {k: v for k, v in params.items() if k in ("reqs", "q", "st")}
     total = db.execute(
-        text(f"SELECT COUNT(*) FROM {_q(layer_name)} {where};"), count_params).scalar() or 0
+        text(f"SELECT COUNT(*) FROM {from_sql} {join_sql} {where};"), count_params).scalar() or 0
     params.update({"limit": limit, "offset": offset})
 
     rows = db.execute(text(f"""
         SELECT {select_list},
                Box2D(ST_Transform({G}, 4326)) AS bb
-        FROM {_q(layer_name)} {where}
-        ORDER BY {_q(order_col)} LIMIT :limit OFFSET :offset;
+        FROM {from_sql}
+        {join_sql}
+        {where}
+        ORDER BY t.{_q(order_col)} LIMIT :limit OFFSET :offset;
     """), params).mappings().all()
     cols_meta = [{"name": c["name"], "type": c["type"]}
                  for c in info["columns"] if c["name"] != info["geom_col"]]
+    if has_req:
+        cols_meta.append({"name": "Request_Status", "type": "text"})
+        cols_meta.append({"name": "Survey_Status", "type": "text"})
     return {"items": [_row_to_item(r) for r in rows], "total": int(total),
             "columns": cols_meta}
 

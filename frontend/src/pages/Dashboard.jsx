@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import axios from "axios";
-import { RefreshCw, Users, Shield, ShieldCheck, UserCog, Eye, CheckCircle2, XCircle, Layers as LayersIcon } from "lucide-react";
+import { RefreshCw, Users, Shield, ShieldCheck, UserCog, Eye, CheckCircle2, XCircle, Layers as LayersIcon, ClipboardList, CalendarCheck2 } from "lucide-react";
 
 const LAYERS = [
   { table: "lands", label: "Land Parcels", color: "#e74c3c", hasArea: true },
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({});
   const [users, setUsers] = useState(null);
   const [usersDenied, setUsersDenied] = useState(false);
+  const [reqStats, setReqStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -26,6 +27,12 @@ export default function Dashboard() {
       setStats(Object.fromEntries(LAYERS.map((l, i) => [l.table, results[i].data])));
     } catch (err) {
       console.error("Failed to load layer stats", err);
+    }
+    try {
+      const res = await axios.get("/api/v1/requests/stats", { headers });
+      setReqStats(res.data);
+    } catch (err) {
+      setReqStats(null);
     }
     try {
       const res = await axios.get("/api/v1/users", { headers });
@@ -122,6 +129,52 @@ export default function Dashboard() {
           );
         })}
       </div>
+
+      {/* Requests ledger — إبلاغ اليوم */}
+      {reqStats && (
+        <div className="bg-white rounded shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+            <h2 className="text-xl font-bold text-slate-800 flex items-center">
+              <ClipboardList className="w-5 h-5 mr-2 text-slate-400" /> Requests ledger — تقرير اليوم
+            </h2>
+            <span className="text-[11px] text-gray-400 bg-gray-100 rounded px-2 py-1">
+              <CalendarCheck2 className="w-3 h-3 inline mr-1" /> {new Date().toLocaleDateString("en-GB")}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 px-6 py-5">
+            <div className="rounded-lg bg-slate-50 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Total requests</p>
+              <p className="text-2xl font-bold text-slate-800">{fmt(reqStats.total)}</p>
+            </div>
+            <div className="rounded-lg bg-blue-50 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-blue-500 font-semibold">Imported today</p>
+              <p className="text-2xl font-bold text-blue-600">{fmt(reqStats.today_imported)}</p>
+            </div>
+            <div className="rounded-lg bg-amber-50 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-amber-600 font-semibold">Pending (جديد)</p>
+              <p className="text-2xl font-bold text-amber-700">{fmt(reqStats.pending)}</p>
+            </div>
+            <div className="rounded-lg bg-emerald-50 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-emerald-600 font-semibold">Accepted today</p>
+              <p className="text-2xl font-bold text-emerald-700">{fmt(reqStats.accepted_today)}</p>
+            </div>
+            <div className="rounded-lg bg-red-50 p-4">
+              <p className="text-[11px] uppercase tracking-wider text-red-500 font-semibold">Rejected today</p>
+              <p className="text-2xl font-bold text-red-600">{fmt(reqStats.rejected_today)}</p>
+            </div>
+          </div>
+          {reqStats.by_status && Object.keys(reqStats.by_status).length > 0 && (
+            <div className="px-6 pb-5 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(reqStats.by_status).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
+                <div key={s} className="border border-gray-100 rounded-md px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs text-gray-600">{s}</span>
+                  <span className="text-sm font-bold text-slate-800">{fmt(n)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Users section */}
       <div className="bg-white rounded shadow mb-6">

@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.api import tiles
+from app.api.requests import sync_base_map_from_geometry
 from app.core.config import settings
 
 router = APIRouter()
@@ -751,6 +752,12 @@ def commit(request: CommitRequest, db: Session = Depends(deps.get_db),
     finally:
         conn.close()
 
+    try:
+        sync_base_map_from_geometry(db, value)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        print(f"Base_Map sync failed for {value}: {exc}")
+
     return {
         "summary": summary,
         "updated": [s["layer_table"] for s in summary if s["status"] == "updated"],
@@ -1025,6 +1032,13 @@ def undo(archive_id: int, db: Session = Depends(deps.get_db),
         raise HTTPException(status_code=500, detail=f"Undo failed: {str(e)}")
     finally:
         conn.close()
+
+    try:
+        sync_base_map_from_geometry(db, value)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        print(f"Base_Map sync failed for {value}: {exc}")
+
     return {"status": "undone", "archive_id": archive_id}
 
 

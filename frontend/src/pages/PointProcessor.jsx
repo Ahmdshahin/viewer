@@ -21,10 +21,10 @@ const PointProcessor = () => {
   const logsEndRef = useRef(null);
 
   // Path configurations (point tool keeps its own files)
-  const [inputPath, setInputPath] = useState("d:\\Systems\\Point_Files");
-  const [outputGpkg, setOutputGpkg] = useState("d:\\\\Systems\\\\MapViewer\\\\Point_Database.gpkg");
-  const [doneDir, setDoneDir] = useState("d:\\\\Systems\\\\MapViewer\\\\Point_Done");
-  const [conflictsFile, setConflictsFile] = useState("d:\\\\Systems\\\\MapViewer\\\\point_conflicts.json");
+  const [inputPath, setInputPath] = useState("");
+  const [outputGpkg, setOutputGpkg] = useState("");
+  const [doneDir, setDoneDir] = useState("");
+  const [conflictsFile, setConflictsFile] = useState("");
   const POINT_TABLE = "mudryia";
 
   const scrollToBottom = () => {
@@ -300,6 +300,7 @@ const PointProcessor = () => {
     setError(null);
     setSuccess(null);
     setPipelineRan(false);
+    setResultTab("ready");
     try {
       const res = await axios.get('/api/v1/point/scan', {
         params: { input_path: inputPath, conflicts_file: conflictsFile, done_dir: doneDir }
@@ -333,9 +334,11 @@ const PointProcessor = () => {
         setTimeout(pollProgress, 1000);
       } else if (res.data.status === "completed") {
         setRunning(false);
-        setSuccess("Point pipeline execution completed successfully!");
-        fetchScan();
+        await fetchScan();
         setPipelineRan(true);
+        setResultTab("done");
+        setStep(3);
+        setSuccess("Point pipeline execution completed successfully!");
       } else if (res.data.status === "error") {
         setRunning(false);
         setError(res.data.error_detail || "An error occurred during processing.");
@@ -370,14 +373,16 @@ const PointProcessor = () => {
     } catch { /* storage unavailable */ }
   }, []);
 
-  // Persist paths per browser so each workstation keeps its own server paths
+  // Persist paths per browser so each workstation keeps its own server paths.
+  // Keys are versioned: v1 stored hardcoded machine-specific defaults, which
+  // would otherwise be restored into every existing browser on first load.
   useEffect(() => {
     try {
       const saved = {
-        inputPath: localStorage.getItem("pp_inputPath"),
-        outputGpkg: localStorage.getItem("pp_outputGpkg"),
-        doneDir: localStorage.getItem("pp_doneDir"),
-        conflictsFile: localStorage.getItem("pp_conflictsFile"),
+        inputPath: localStorage.getItem("pp2_inputPath"),
+        outputGpkg: localStorage.getItem("pp2_outputGpkg"),
+        doneDir: localStorage.getItem("pp2_doneDir"),
+        conflictsFile: localStorage.getItem("pp2_conflictsFile"),
       };
       if (saved.inputPath) setInputPath(saved.inputPath);
       if (saved.outputGpkg) setOutputGpkg(saved.outputGpkg);
@@ -387,10 +392,10 @@ const PointProcessor = () => {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem("pp_inputPath", inputPath);
-      localStorage.setItem("pp_outputGpkg", outputGpkg);
-      localStorage.setItem("pp_doneDir", doneDir);
-      localStorage.setItem("pp_conflictsFile", conflictsFile);
+      localStorage.setItem("pp2_inputPath", inputPath);
+      localStorage.setItem("pp2_outputGpkg", outputGpkg);
+      localStorage.setItem("pp2_doneDir", doneDir);
+      localStorage.setItem("pp2_conflictsFile", conflictsFile);
     } catch { /* storage unavailable */ }
   }, [inputPath, outputGpkg, doneDir, conflictsFile]);
 
@@ -400,7 +405,7 @@ const PointProcessor = () => {
         const res = await axios.get('/api/v1/point/progress');
         if (res.data.status === "running") {
           setRunning(true);
-          setStep(3);
+          setStep(2);
           pollProgress();
         }
       } catch {
@@ -430,10 +435,10 @@ const PointProcessor = () => {
       {/* WIZARD STEPPER */}
       <div className="flex items-center mb-4 flex-shrink-0 bg-white rounded-lg shadow-sm border border-gray-200 px-6 py-3">
         {[
-          { n: 1, label: "Source paths" },
-          { n: 2, label: "Review results" },
-          { n: 3, label: "Run pipeline" },
-          { n: 4, label: "Migrate to map" },
+      { n: 1, label: "Source paths" },
+      { n: 2, label: "Run pipeline" },
+      { n: 3, label: "Results" },
+      { n: 4, label: "Migrate to map" },
         ].map((s, i, arr) => (
           <React.Fragment key={s.n}>
             <button onClick={() => setStep(s.n)} disabled={running} className="flex items-center gap-2 disabled:cursor-default">
@@ -468,23 +473,27 @@ const PointProcessor = () => {
         <div className="w-full lg:w-1/3 flex flex-col gap-4 min-h-0 flex-shrink-0">
 
           {/* STATS CARDS (step 2) */}
-          {step === 2 && scanData && !running && (
-            <div className="grid grid-cols-3 gap-4 flex-shrink-0">
+          {(step === 1 || step === 3) && scanData && !running && (
+            <div className={"grid gap-4 flex-shrink-0 " + (pipelineRan ? "grid-cols-3" : "grid-cols-1")}>
               <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center">
                 <FolderSearch className="w-6 h-6 text-blue-500 mb-1" />
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Pending</p>
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{pipelineRan ? "Pending" : "Ready to process"}</p>
                 <p className="text-2xl font-bold text-gray-900">{scanData.total_pending}</p>
               </div>
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center">
-                <FolderOpen className="w-6 h-6 text-emerald-500 mb-1" />
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Done</p>
-                <p className="text-2xl font-bold text-emerald-600">{scanData.total_done}</p>
-              </div>
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center">
-                <AlertTriangle className="w-6 h-6 text-red-500 mb-1" />
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Conflicts</p>
-                <p className="text-2xl font-bold text-red-600">{scanData.total_conflicts}</p>
-              </div>
+              {pipelineRan && (
+                <>
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center">
+                    <FolderOpen className="w-6 h-6 text-emerald-500 mb-1" />
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Done</p>
+                    <p className="text-2xl font-bold text-emerald-600">{scanData.total_done}</p>
+                  </div>
+                  <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-center items-center text-center">
+                    <AlertTriangle className="w-6 h-6 text-red-500 mb-1" />
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Conflicts</p>
+                    <p className="text-2xl font-bold text-red-600">{scanData.total_conflicts}</p>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -501,7 +510,7 @@ const PointProcessor = () => {
                   <MapPin className="w-3 h-3 mr-1 text-purple-500" /> Point Input Directory
                 </label>
                 <div className="flex">
-                  <input type="text" value={inputPath} onChange={(e) => setInputPath(e.target.value)} className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  <input type="text" value={inputPath} onChange={(e) => setInputPath(e.target.value)} placeholder="Folder that contains the point shapefile folders" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
                   <button onClick={() => handleBrowse('folder', 'Select Point Shapefiles Directory', '', setInputPath)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
                     <Search className="w-3 h-3" />
                   </button>
@@ -512,7 +521,7 @@ const PointProcessor = () => {
                   <Save className="w-3 h-3 mr-1 text-emerald-500" /> Output Point GeoPackage
                 </label>
                 <div className="flex">
-                  <input type="text" value={outputGpkg} onChange={(e) => setOutputGpkg(e.target.value)} className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  <input type="text" value={outputGpkg} onChange={(e) => setOutputGpkg(e.target.value)} placeholder="Full path to the output .gpkg file" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
                   <button onClick={() => handleBrowse('save_file', 'Select Output Point GeoPackage', '.gpkg', setOutputGpkg)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
                     <Search className="w-3 h-3" />
                   </button>
@@ -523,7 +532,7 @@ const PointProcessor = () => {
                   <Archive className="w-3 h-3 mr-1 text-amber-500" /> Archive Directory
                 </label>
                 <div className="flex">
-                  <input type="text" value={doneDir} onChange={(e) => setDoneDir(e.target.value)} className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  <input type="text" value={doneDir} onChange={(e) => setDoneDir(e.target.value)} placeholder="Folder where processed folders are archived" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
                   <button onClick={() => handleBrowse('folder', 'Select Done/Archive Directory', '', setDoneDir)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
                     <Search className="w-3 h-3" />
                   </button>
@@ -534,7 +543,7 @@ const PointProcessor = () => {
                   <FileJson className="w-3 h-3 mr-1 text-red-500" /> Conflicts Log File
                 </label>
                 <div className="flex">
-                  <input type="text" value={conflictsFile} onChange={(e) => setConflictsFile(e.target.value)} className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  <input type="text" value={conflictsFile} onChange={(e) => setConflictsFile(e.target.value)} placeholder="Full path to the conflicts .json file" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
                   <button onClick={() => handleBrowse('save_file', 'Select Conflicts JSON File', '.json', setConflictsFile)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
                     <Search className="w-3 h-3" />
                   </button>
@@ -550,7 +559,7 @@ const PointProcessor = () => {
                 <Trash2 className="w-4 h-4 mr-2" />
                 Empty DB
               </button>
-              <button onClick={async () => { const ok = await fetchScan(); if (ok) setStep(2); }} disabled={loading || running} className="px-5 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+              <button onClick={fetchScan} disabled={loading || running} className="px-5 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
                 <RefreshCw className={"w-4 h-4 mr-2 " + (loading && !running ? "animate-spin" : "")} />
                 Scan folders & continue
               </button>
@@ -562,31 +571,61 @@ const PointProcessor = () => {
 
         {/* STEP 2 / STEP 3 PANEL */}
         <div className="w-full lg:w-2/3 flex flex-col min-h-0 bg-white rounded-lg shadow-sm border border-gray-200">
-          {step === 3 && !running && (
+          {step === 2 && !running && (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-              <span className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold mb-3">3</span>
-              <h3 className="text-md font-bold text-gray-800 mb-1">Ready to process</h3>
-              <p className="text-sm text-gray-600">Import point folders into the database and archive them.</p>
-              <p className="text-xs text-gray-500 mt-1">Input: <span className="font-mono">{inputPath}</span></p>
-              <p className="text-xs text-gray-500">Output: <span className="font-mono">{outputGpkg}</span></p>
-              <div className="flex gap-3 mt-5">
-                <button onClick={() => setStep(2)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium transition-colors shadow-sm">
-                  Back to review
-                </button>
-                <button onClick={runPipeline} disabled={loading || running || !scanData} title={!scanData ? "Scan first (step 1) before running" : ""} className="px-5 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
-                  <Play className="w-4 h-4 mr-2" />
-                  Run Pipeline{scanData ? ` (${scanData.total_pending} folders)` : ""}
-                </button>
-                {pipelineRan && (
-                  <button onClick={() => setStep(4)} className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-md text-sm font-medium transition-colors shadow-sm">
-                    Continue to migrate
-                  </button>
-                )}
-              </div>
-              {!scanData && <p className="text-xs text-amber-600 mt-3">No scan data yet — go back to step 1 and scan first.</p>}
+              <span className={"w-10 h-10 rounded-full text-white flex items-center justify-center text-sm font-bold mb-3 " + (pipelineRan ? "bg-emerald-600" : "bg-blue-600")}>3</span>
+              {pipelineRan ? (
+                <>
+                  <h3 className="text-md font-bold text-gray-800 mb-1">Run finished</h3>
+                  <p className="text-sm text-gray-600">Review the results, then continue to migrate.</p>
+                  <div className="grid grid-cols-3 gap-3 mt-5 w-full max-w-md">
+                    <div className="border border-gray-200 rounded-lg p-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Done</p>
+                      <p className="text-xl font-bold text-emerald-600">{scanData ? scanData.total_done : 0}</p>
+                    </div>
+                    <div className="border border-gray-200 rounded-lg p-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Conflicts</p>
+                      <p className="text-xl font-bold text-red-600">{scanData ? scanData.total_conflicts : 0}</p>
+                    </div>
+                    <div className="border border-gray-200 rounded-lg p-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Remaining</p>
+                      <p className="text-xl font-bold text-gray-900">{scanData ? scanData.total_pending : 0}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-3 mt-5">
+                    <button onClick={() => setStep(3)} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors shadow-sm">
+                      View results
+                    </button>
+                    <button onClick={() => setStep(4)} className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-md text-sm font-medium transition-colors shadow-sm">
+                      Continue to migrate
+                    </button>
+                    <button onClick={runPipeline} disabled={loading || !scanData} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+                      <Play className="w-4 h-4 mr-2" />
+                      Run again
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-md font-bold text-gray-800 mb-1">Ready to process</h3>
+                  <p className="text-sm text-gray-600">Import point folders into the database and archive them.</p>
+                  <p className="text-xs text-gray-500 mt-1">Input: <span className="font-mono">{inputPath}</span></p>
+                  <p className="text-xs text-gray-500">Output: <span className="font-mono">{outputGpkg}</span></p>
+                  <div className="flex gap-3 mt-5">
+                    <button onClick={() => setStep(1)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium transition-colors shadow-sm">
+                      Back to paths
+                    </button>
+                    <button onClick={runPipeline} disabled={loading || running || !scanData} title={!scanData ? "Scan first (step 1) before running" : ""} className="px-5 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+                      <Play className="w-4 h-4 mr-2" />
+                      Run Pipeline{scanData ? ` (${scanData.total_pending} folders)` : ""}
+                    </button>
+                  </div>
+                  {!scanData && <p className="text-xs text-amber-600 mt-3">No scan data yet — go back to step 1 and scan first.</p>}
+                </>
+              )}
             </div>
           )}
-          {step === 3 && running ? (
+          {step === 2 && running ? (
             // PROGRESS TERMINAL
             <div className="flex flex-col h-full p-4">
               <div className="mb-4 flex-shrink-0">
@@ -617,7 +656,7 @@ const PointProcessor = () => {
                 </div>
               </div>
             </div>
-          ) : step === 2 ? (
+          ) : (step === 1 && scanData) || step === 3 ? (
             // SCAN RESULTS (DONE + CONFLICTS TABS)
             <div className="flex flex-col h-full">
               <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2 flex-shrink-0">
@@ -628,20 +667,24 @@ const PointProcessor = () => {
                   <FolderSearch className="w-3.5 h-3.5 mr-1.5" />
                   Ready ({scanData ? scanData.total_pending : 0})
                 </button>
-                <button
-                  onClick={() => setResultTab("conflicts")}
-                  className={"px-3 py-1.5 rounded-md text-xs font-semibold inline-flex items-center transition-colors " + (resultTab === "conflicts" ? "bg-red-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100")}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
-                  Conflicts ({scanData ? scanData.total_conflicts : 0})
-                </button>
-                <button
-                  onClick={() => setResultTab("done")}
-                  className={"px-3 py-1.5 rounded-md text-xs font-semibold inline-flex items-center transition-colors " + (resultTab === "done" ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100")}
-                >
-                  <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
-                  Done ({scanData ? scanData.total_done : 0})
-                </button>
+                {pipelineRan && (
+                  <button
+                    onClick={() => setResultTab("conflicts")}
+                    className={"px-3 py-1.5 rounded-md text-xs font-semibold inline-flex items-center transition-colors " + (resultTab === "conflicts" ? "bg-red-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100")}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+                    Conflicts ({scanData ? scanData.total_conflicts : 0})
+                  </button>
+                )}
+                {pipelineRan && (
+                  <button
+                    onClick={() => setResultTab("done")}
+                    className={"px-3 py-1.5 rounded-md text-xs font-semibold inline-flex items-center transition-colors " + (resultTab === "done" ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100")}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+                    Done ({scanData ? scanData.total_done : 0})
+                  </button>
+                )}
                 <button
                   onClick={exportCSV}
                   disabled={!scanData}
@@ -666,7 +709,8 @@ const PointProcessor = () => {
                     <>
                       {scanData.total_pending > scanData.pending_folders.length && (
                         <div className="px-4 py-2 text-[11px] text-amber-700 bg-amber-50 border-b border-amber-100">
-                          Showing first {scanData.pending_folders.length} of {scanData.total_pending} ready folders. Fix conflicts, then re-scan.
+                          Showing first {scanData.pending_folders.length} of {scanData.total_pending} ready folders.{" "}
+                          {pipelineRan ? "Fix conflicts, then re-scan." : "The list is truncated."}
                         </div>
                       )}
                       <table className="min-w-full divide-y divide-gray-200">
@@ -693,7 +737,7 @@ const PointProcessor = () => {
                   ) : scanData ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-400">
                       <CheckCircle className="w-12 h-12 mb-2 text-gray-300" />
-                      <p className="text-sm">No ready folders. Resolve conflicts or check the input directory.</p>
+                      <p className="text-sm">{pipelineRan ? "No ready folders. Resolve conflicts or check the input directory." : "No ready folders found in the input directory."}</p>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-gray-400">
@@ -833,22 +877,23 @@ const PointProcessor = () => {
                   </div>
                 ))}
               </div>
-              <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex justify-between items-center flex-shrink-0">
-                <button onClick={() => setStep(1)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-md text-sm font-medium transition-colors shadow-sm">
-                  Back to paths
+              <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex justify-end items-center gap-2 flex-shrink-0">
+                <button onClick={fetchScan} disabled={loading || running} className="px-4 py-2 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
+                  <RefreshCw className={"w-4 h-4 mr-2 " + (loading && !running ? "animate-spin" : "")} />
+                  Re-scan
                 </button>
-                <div className="flex gap-2">
-                  <button onClick={fetchScan} disabled={loading || running} className="px-4 py-2 bg-slate-200 text-slate-700 hover:bg-slate-300 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">
-                    <RefreshCw className={"w-4 h-4 mr-2 " + (loading && !running ? "animate-spin" : "")} />
-                    Re-scan
+                {step === 3 ? (
+                  <button onClick={() => setStep(4)} disabled={running} className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50">
+                    Continue to migrate
                   </button>
-                  <button onClick={() => setStep(3)} disabled={running} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50">
+                ) : (
+                  <button onClick={() => setStep(2)} disabled={running} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors shadow-sm disabled:opacity-50">
                     Continue to run
                   </button>
-                </div>
+                )}
               </div>
             </div>
-          ) : step === 1 ? (
+          ) : step === 1 && !scanData ? (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center text-gray-400">
               <FolderSearch className="w-12 h-12 mb-2 text-gray-300" />
               <p className="text-sm font-semibold text-gray-600">Step 2 preview</p>

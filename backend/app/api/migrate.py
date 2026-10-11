@@ -15,9 +15,11 @@ import psycopg2
 import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.api.deps import get_current_active_editor
+from app.api.deps import get_current_active_editor, get_db
+from app.api.requests import sync_base_map_bulk
 from app.db.models import User
 
 router = APIRouter()
@@ -213,7 +215,8 @@ def migrate_history(limit: int = Query(50, ge=1, le=200)):
 
 
 @router.post("/run")
-def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_current_active_editor)):
+def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_current_active_editor),
+                db: Session = Depends(get_db)):
     """Migrate GPKG layers into PostGIS, skipping already-migrated request numbers.
 
     Only users with admin/editor role may run this; every layer migrated is
@@ -228,6 +231,7 @@ def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_cur
     skipped_reqs: Dict[str, List[str]] = {}
     orphaned: Dict[str, int] = {}
     orphaned_reqs: Dict[str, List[str]] = {}
+    touched: set = set()
     audit_ids: Dict[str, int] = {}
     land_present = None
 
@@ -291,6 +295,7 @@ def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_cur
                     records = kept
 
                 if records:
+                    touched.update(rec[0] for rec in records if rec[0])
                     if kind == "land":
                         sql = LAND_SQL.format(table=table)
                     elif kind == "esh":
@@ -346,6 +351,12 @@ def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_cur
         raise HTTPException(status_code=500, detail=f"Migration failed: {e!r}")
     finally:
         conn.close()
+
+    try:
+        sync_base_map_bulk(db, touched)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        print(f"Base_Map sync failed after migrate: {exc}")
 
     return {"migrated": migrated, "skipped": skipped,
             "skipped_requests": skipped_reqs, "orphaned": orphaned,

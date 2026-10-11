@@ -41,7 +41,7 @@ SHP_COLUMNS = {
 
 
 class ExportIn(BaseModel):
-    layers: List[str] = ["land", "eshghalat", "point"]
+    layers: List[str] = ["lands", "eshghalat", "points"]
     format: str = "geojson"
     filters: Optional[Dict[str, List[str]]] = None
     sel: Optional[str] = None  # named selection: same request set on every layer

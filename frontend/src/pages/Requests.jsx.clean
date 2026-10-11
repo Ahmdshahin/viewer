@@ -1,0 +1,617 @@
+﻿import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import {
+  Search, Map as MapIcon, RefreshCw, ChevronLeft, ChevronRight, X,
+  History, Save, Loader2, Download,
+} from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+
+const H = () => (localStorage.getItem("token") ? { Authorization: "Bearer " + localStorage.getItem("token") } : {});
+
+// Mirrors REQUEST_STATUSES / CANONICAL_SURVEY_STATUSES in backend/app/db/models.py.
+// One survey state per meaning â€” the duplicate spellings the ledgers used to
+// carry ("ØªÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©" vs "ØªÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ù‡") were normalized in the DB, so every
+// state appears exactly once in the filters and in the edit dropdowns. The
+// downloadable template offers the user's own shorter list.
+const REQ_STATUSES = [
+  "Ø¬Ø¯ÙŠØ¯", "Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©", "Ø¨Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„ÙÙ†ÙŠØ©", "ØªÙ… Ø§Ù„Ø§Ø±Ø³Ø§Ù„", "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø§Ø±Ø³Ø§Ù„",
+  "ØªÙ… Ø§Ù„Ø±ÙØ¹ Ø¹ Ø§Ù„Ù…Ù†Ø¸ÙˆÙ…Ø©", "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø±ÙØ¹ Ø¹ Ø§Ù„Ù…Ù†Ø¸ÙˆÙ…Ø©", "Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¹Ù…Ù„ Ø¹Ù„ÙŠÙ‡",
+  "Ù…Ù‚Ø¨ÙˆÙ„", "Ù…Ø±ÙÙˆØ¶", "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ù…Ù„ Ø¹Ù„ÙŠÙ‡", "Ù…ÙƒØªÙ…Ù„ ÙˆÙ„Ù… ÙŠØ±Ø³Ù„",
+];
+const SURVEY_STATUSES = [
+  "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ù‡", "ØªÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ù‡", "ØªØ¹Ø°Ø± Ø§Ù„Ø±ÙØ¹", "Ø§Ø¹Ø§Ø¯Ù‡ Ù…Ø¹Ø§ÙŠÙ†Ù‡",
+  "ØªÙ… Ø§Ù„Ø±ÙØ¹ ÙˆØ¬Ø§Ø±Ù‰ Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ù‡", "Ù…Ø±ÙÙˆØ¶ Ù…ÙƒØªØ¨ ÙÙ†ÙŠ", "Ø·Ù„Ø¨ Ù…ØªÙˆÙ‚Ù",
+  "Ù…Ù„Ù ØºÙŠØ± Ù…ÙƒØªÙ…Ù„", "ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ Ø¨Ø§Ù„Ù…Ù†Ø¸ÙˆÙ…Ù‡",
+];
+const STATUS_TONES = {
+  "Ù…Ù‚Ø¨ÙˆÙ„": "bg-green-50 text-green-700 border-green-200",
+  "Ù…Ø±ÙÙˆØ¶": "bg-red-50 text-red-700 border-red-200",
+  "Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©": "bg-amber-50 text-amber-700 border-amber-200",
+  "Ø¨Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„ÙÙ†ÙŠØ©": "bg-blue-50 text-blue-700 border-blue-200",
+  "Ø¬Ø¯ÙŠØ¯": "bg-slate-100 text-slate-700 border-slate-200",
+  "ØªÙ… Ø§Ù„Ø§Ø±Ø³Ø§Ù„": "bg-cyan-50 text-cyan-700 border-cyan-200",
+  "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø§Ø±Ø³Ø§Ù„": "bg-rose-50 text-rose-700 border-rose-200",
+  "Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¹Ù…Ù„ Ø¹Ù„ÙŠÙ‡": "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "ØªÙ… Ø§Ù„Ø±ÙØ¹ Ø¹ Ø§Ù„Ù…Ù†Ø¸ÙˆÙ…Ø©": "bg-teal-50 text-teal-700 border-teal-200",
+  "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø±ÙØ¹ Ø¹ Ø§Ù„Ù…Ù†Ø¸ÙˆÙ…Ø©": "bg-orange-50 text-orange-700 border-orange-200",
+  "Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ù…Ù„ Ø¹Ù„ÙŠÙ‡": "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
+  "Ù…ÙƒØªÙ…Ù„ ÙˆÙ„Ù… ÙŠØ±Ø³Ù„": "bg-lime-50 text-lime-700 border-lime-200",
+};
+const tone = (s) => STATUS_TONES[s] || "bg-gray-50 text-gray-600 border-gray-200";
+const fmt = (n) => (n === null || n === undefined ? "â€”" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 3 }));
+
+const FIELD_LABEL = "text-[10px] uppercase tracking-wider text-gray-400 block";
+const FIELD_INPUT = "mt-0.5 w-full px-2 py-1.5 text-sm rounded-md border border-gray-200 bg-white";
+
+const uniq = (arr) => [...new Set(arr.filter((v) => v !== null && v !== undefined && v !== ""))];
+
+// The record's current value always stays inside its own dropdown, even when
+// it is no longer offered (a legacy spelling, or a lookup entry an admin has
+// disabled) â€” a select must never silently swap what it displays.
+const withCurrent = (options, current) =>
+  current && !options.includes(current) ? [current, ...options] : options;
+
+// Module-level on purpose: an inline component definition would remount on
+// every keystroke and the input would lose focus mid-word.
+const TextField = ({ label, value, onChange, type = "text" }) => (
+  <div>
+    <label className={FIELD_LABEL}>{label}</label>
+    <input type={type} step={type === "number" ? "any" : undefined}
+      value={value ?? ""} onChange={(e) => onChange(e.target.value)} className={FIELD_INPUT} />
+  </div>
+);
+
+const SelectField = ({ label, value, onChange, options, clearable = true }) => (
+  <div>
+    <label className={FIELD_LABEL}>{label}</label>
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={FIELD_INPUT}>
+      {clearable && <option value="">â€”</option>}
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>
+);
+
+// Read-only value inside a group (request number, geometry count) â€” same
+// shape as the inputs around it so the grid never breaks.
+const StaticField = ({ label, value, mono = false }) => (
+  <div>
+    <label className={FIELD_LABEL}>{label}</label>
+    <p className={"mt-0.5 px-2 py-1.5 text-sm rounded-md border border-dashed border-gray-200 bg-gray-50 break-words "
+      + (mono ? "font-mono text-blue-700" : "text-slate-600")}>
+      {value || "â€”"}
+    </p>
+  </div>
+);
+
+// The side form is one shared form split into three labelled sections, each
+// holding the fields in the order the ledger team specified.
+const FormGroup = ({ title, children }) => (
+  <div className="border border-gray-100 rounded-md p-3 bg-slate-50/40">
+    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">{title}</p>
+    <div className="grid grid-cols-2 gap-2">{children}</div>
+  </div>
+);
+
+const readPanelWidth = () => {
+  const raw = Number(localStorage.getItem("ledgerPanelWidth"));
+  const maxW = Math.max(360, Math.min(900, Math.floor(window.innerWidth * 0.55)));
+  if (!Number.isFinite(raw) || raw <= 0) return Math.min(440, maxW);
+  return Math.min(Math.max(raw, 320), maxW);
+};
+
+/**
+ * The request ledger UI, shared by the company Requests ledger and the
+ * Mudryia Requests ledger. Both are full mirrors of the same record shape and
+ * the same shared lookups, so they render through one component and cannot
+ * drift apart. `cfg` only supplies what genuinely differs:
+ *   base       API prefix
+ *   title      page heading
+ *   mapLayer   table to deep-link to from "Open on map" (null = all layers)
+ */
+export function RequestLedger({ base, title, mapLayer = null, emptyText = "No requests match the filters" }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+
+  // filters
+  const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState(() => searchParams.get("q") || "");
+  const [govs, setGovs] = useState([]);
+  const [govId, setGovId] = useState("");
+  const [centers, setCenters] = useState([]);
+  const [centerId, setCenterId] = useState("");
+  const [status, setStatus] = useState("");
+  const [surveyStatus, setSurveyStatus] = useState("");
+  const [hasGeom, setHasGeom] = useState("");
+
+  // detail
+  const [open, setOpen] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [infoBusy, setInfoBusy] = useState(false);
+  const [form, setForm] = useState({});
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  // side panel width (drag-resizable, remembered across visits)
+  const [panelW, setPanelW] = useState(readPanelWidth);
+
+  // edit-form lookup options: existing values only, cascaded by parent
+  const [formCenters, setFormCenters] = useState([]);
+  const [formVillages, setFormVillages] = useState([]);
+  const [formUnits, setFormUnits] = useState([]);
+  const [staff, setStaff] = useState({ surveyors: [], offices: [], rawStatuses: [] });
+
+  // The exact query the list runs with, so the CSV export covers every row
+  // matching the current filters (not just the visible page).
+  const listParams = useCallback(() => {
+    const params = { page, per_page: perPage };
+    if (qInput) params.q = qInput;
+    if (govId) params.governorate_id = govId;
+    if (centerId) params.center_id = centerId;
+    if (status) params.request_status = status;
+    if (surveyStatus) params.survey_status = surveyStatus;
+    if (hasGeom === "yes") params.has_geometry = true;
+    if (hasGeom === "no") params.has_geometry = false;
+    return params;
+  }, [page, perPage, qInput, govId, centerId, status, surveyStatus, hasGeom]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await axios.get(base, { headers: H(), params: listParams() });
+      setRows(res.data.items);
+      setTotal(res.data.total);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to load requests");
+    } finally {
+      setLoading(false);
+    }
+  }, [base, listParams]);
+
+  const exportList = async () => {
+    setExporting(true);
+    setError("");
+    try {
+      const { page: _page, per_page: _perPage, ...filters } = listParams();
+      const res = await axios.get(`${base}/export`, {
+        headers: H(), params: filters, responseType: "blob",
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      const cd = res.headers["content-disposition"] || "";
+      const m = cd.match(/filename="?([^";]+)/);
+      a.download = m ? m[1] : "requests.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.response?.data?.detail || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const loadGovs = useCallback(async () => {
+    try {
+      const res = await axios.get("/api/v1/lookups/governorates", { headers: H() });
+      setGovs(res.data);
+    } catch (e) { /* ignore */ }
+  }, []);
+
+  const loadCenters = useCallback(async (gid) => {
+    if (!gid) { setCenters([]); return; }
+    try {
+      const res = await axios.get("/api/v1/lookups/centers", { headers: H(), params: { governorate_id: gid } });
+      setCenters(res.data);
+    } catch (e) { setCenters([]); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadGovs(); }, [loadGovs]);
+  useEffect(() => { loadCenters(govId); setCenterId(""); }, [govId, loadCenters]);
+
+  // Edit-form lookups: area units + the staff names already written in this
+  // ledger (scoped per ledger â€” the two ledgers keep separate staff lists).
+  useEffect(() => {
+    const ledger = base.includes("mudryia") ? "mudryia" : "company";
+    axios.get("/api/v1/lookups/area_units", { headers: H() })
+      .then((r) => setFormUnits(r.data.map((u) => u.name)))
+      .catch(() => {});
+    axios.get("/api/v1/lookups/people", { headers: H(), params: { type: "surveyor", ledger } })
+      .then((r) => setStaff((s) => ({ ...s, surveyors: r.data })))
+      .catch(() => {});
+    axios.get("/api/v1/lookups/people", { headers: H(), params: { type: "office", ledger } })
+      .then((r) => setStaff((s) => ({ ...s, offices: r.data })))
+      .catch(() => {});
+    axios.get("/api/v1/lookups/people", { headers: H(), params: { type: "raw_files", ledger } })
+      .then((r) => setStaff((s) => ({ ...s, rawStatuses: r.data })))
+      .catch(() => {});
+  }, [base]);
+
+  // Cascading selects: centers follow the chosen governorate, villages follow
+  // the chosen center. A stale response must not overwrite a newer choice, so
+  // each request is cancelled by its cleanup flag.
+  useEffect(() => {
+    const g = govs.find((x) => x.name === (form.governorate || ""));
+    if (!g) { setFormCenters([]); return undefined; }
+    let alive = true;
+    axios.get("/api/v1/lookups/centers", { headers: H(), params: { governorate_id: g.id } })
+      .then((r) => { if (alive) setFormCenters(r.data); })
+      .catch(() => { if (alive) setFormCenters([]); });
+    return () => { alive = false; };
+  }, [govs, form.governorate]);
+
+  useEffect(() => {
+    const c = formCenters.find((x) => x.name === (form.center || ""));
+    if (!c) { setFormVillages([]); return undefined; }
+    let alive = true;
+    axios.get("/api/v1/lookups/villages", { headers: H(), params: { center_id: c.id } })
+      .then((r) => { if (alive) setFormVillages(r.data); })
+      .catch(() => { if (alive) setFormVillages([]); });
+    return () => { alive = false; };
+  }, [formCenters, form.center]);
+
+  const openDetail = async (r) => {
+    setOpen(r);
+    setDetail(null);
+    setInfoBusy(true);
+    setNote("");
+    try {
+      const res = await axios.get(`${base}/${r.id}`, { headers: H() });
+      setDetail(res.data);
+      const d = res.data;
+      setForm({
+        applicant: d.applicant || "", phone: d.phone || "", address: d.address || "",
+        area_value: d.area_value ?? "", area_unit: d.area_unit || "", unit_type: d.unit_type || "",
+        governorate: d.governorate || "", center: d.center || "", village: d.village || "",
+        surveyor: d.surveyor || "", office: d.office || "", survey_status: d.survey_status || "",
+        survey_comment: d.survey_comment || "", office_comment: d.office_comment || "",
+        request_status: d.request_status || "Ø¬Ø¯ÙŠØ¯", reqra_number: d.reqra_number || "",
+        entry_date: d.entry_date || "", survey_date: d.survey_date || "",
+        distribution_date: d.distribution_date || "", alt_survey_date: d.alt_survey_date || "",
+        geodesy_date: d.geodesy_date || "", directorate_date: d.directorate_date || "",
+        landmarks: d.landmarks || "", field_team: d.field_team || "",
+        raw_files: d.raw_files || "", base_map: d.base_map || "",
+      });
+    } catch (e) {
+      setError(e.response?.data?.detail || "Failed to load request");
+    } finally {
+      setInfoBusy(false);
+    }
+  };
+
+  const save = async () => {
+    setSaveBusy(true);
+    setNote("");
+    try {
+      const payload = { ...form };
+      if (payload.area_value === "" || payload.area_value === null) payload.area_value = null;
+      const res = await axios.patch(`${base}/${open.id}`, payload, { headers: H() });
+      setDetail(res.data);
+      setNote({ ok: "Saved" });
+      load();
+    } catch (e) {
+      setNote({ err: e.response?.data?.detail || "Save failed" });
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  // One field write for the edit form: changing the governorate drops the
+  // center/village that belonged to the old one, changing the center drops the
+  // village â€” the saved record can never keep a child whose parent is gone.
+  const setF = (k, v) =>
+    setForm((f) => {
+      const next = { ...f, [k]: v };
+      if (k === "governorate") { next.center = ""; next.village = ""; }
+      else if (k === "center") { next.village = ""; }
+      return next;
+    });
+
+  const startResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = panelW;
+    const maxW = Math.max(360, Math.min(900, Math.floor(window.innerWidth * 0.55)));
+    let last = startW;
+    const onMove = (ev) => {
+      last = Math.min(maxW, Math.max(320, startW + (startX - ev.clientX)));
+      setPanelW(last);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      localStorage.setItem("ledgerPanelWidth", String(last));
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  // One request can own many features (a boundary is a ring of points), so the
+  // count is what tells you how much geometry is really attached.
+  const countBadge = (r) =>
+    r.has_geometry
+      ? <span title={(r.geometry_layers || []).join(", ")}
+               className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5">
+          {fmt(r.geometry_count)} on map
+        </span>
+      : <span className="text-[10px] font-mono text-gray-300">â€”</span>;
+
+  return (
+    <div className="flex flex-row h-full overflow-hidden">
+      {/* Main column */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="p-6 pb-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800">{title}</h1>
+            <p className="text-sm text-gray-500 mt-1">{fmt(total)} Ø·Ù„Ø¨ in the ledger</p>
+          </div>
+          <button onClick={load} disabled={loading}
+            className="inline-flex items-center px-3 py-2 rounded-md text-xs font-semibold bg-slate-900 text-white hover:bg-slate-700 disabled:opacity-50">
+            <RefreshCw className={"w-3.5 h-3.5 mr-1.5 " + (loading ? "animate-spin" : "")} /> Refresh
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="px-6 pb-3 flex flex-wrap gap-2 items-center">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-400" />
+            <input value={qInput} onChange={(e) => setQInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { setQ(qInput); setPage(1); } }}
+              placeholder="Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨ / Ø§Ù„Ø§Ø³Ù… / Ø§Ù„Ù‡Ø§ØªÙ"
+              className="pl-8 pr-14 py-2 text-sm rounded-md border border-gray-200 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <button onClick={() => { setQ(qInput); setPage(1); }}
+              className="absolute right-1 top-1.5 text-xs font-semibold text-blue-600 px-2 py-1 rounded hover:bg-blue-50">Go</button>
+          </div>
+
+          <select value={govId} onChange={(e) => setGovId(e.target.value)}
+            className="px-2 py-2 text-sm rounded-md border border-gray-200">
+            <option value="">All governorates</option>
+            {govs.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+
+          <select value={centerId} onChange={(e) => { setCenterId(e.target.value); setPage(1); }}
+            className="px-2 py-2 text-sm rounded-md border border-gray-200 disabled:opacity-50" disabled={!govId}>
+            <option value="">All centers</option>
+            {centers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}
+            className="px-2 py-2 text-sm rounded-md border border-gray-200">
+            <option value="">All statuses</option>
+            {REQ_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <select value={surveyStatus} onChange={(e) => { setSurveyStatus(e.target.value); setPage(1); }}
+            className="px-2 py-2 text-sm rounded-md border border-gray-200">
+            <option value="">All survey states</option>
+            {SURVEY_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <select value={hasGeom} onChange={(e) => { setHasGeom(e.target.value); setPage(1); }}
+            className="px-2 py-2 text-sm rounded-md border border-gray-200">
+            <option value="">All geometry</option>
+            <option value="yes">Has geometry</option>
+            <option value="no">No geometry</option>
+          </select>
+
+          <button onClick={exportList} disabled={exporting}
+            title="Export every row matching the filters as CSV"
+            className="inline-flex items-center px-3 py-2 rounded-md text-xs font-semibold bg-white text-slate-700 border border-gray-300 hover:bg-slate-50 disabled:opacity-50 ml-auto">
+            <Download className={"w-3.5 h-3.5 mr-1.5 " + (exporting ? "animate-spin" : "")} />
+            {exporting ? "Exportingâ€¦" : "Export CSV"}
+          </button>
+        </div>
+
+        {error && <p className="px-6 pb-2 text-sm text-red-600">{error}</p>}
+
+        {/* Table */}
+        <div className="flex-1 overflow-auto px-6">
+          <table className="w-full text-sm border-collapse">
+            <thead className="bg-slate-100 text-slate-500 text-xs uppercase tracking-wider sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 font-semibold">رقم الطلب</th>
+                <th className="text-left px-3 py-2 font-semibold">مقدم الطلب</th>
+                <th className="text-left px-3 py-2 font-semibold">المركز</th>
+                <th className="text-right px-3 py-2 font-semibold">المساحة</th>
+                <th className="text-left px-3 py-2 font-semibold">وحدة المساحة</th>
+                <th className="text-left px-3 py-2 font-semibold">حالة المعاينة</th>
+                <th className="text-left px-3 py-2 font-semibold">حالة الطلب</th>
+                <th className="text-left px-3 py-2 font-semibold">رقم التقنين</th>
+                <th className="text-left px-3 py-2 font-semibold">الخرائط</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} onClick={() => openDetail(r)}
+                  className={"border-b border-gray-100 hover:bg-blue-50/60 cursor-pointer " + (open && open.id === r.id ? "bg-blue-50" : "")}>
+                  <td className="px-3 py-2 font-mono text-xs text-blue-700 whitespace-nowrap">{r.req_number}</td>
+                  <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate">{r.applicant || "â€”"}</td>
+                  <td className="px-3 py-2 text-slate-600">{r.center || "â€”"}</td>
+                  <td className="px-3 py-2 text-right text-slate-700 tabular-nums">{fmt(r.area_value)}</td>
+                  <td className="px-3 py-2 text-slate-500">{r.area_unit || "â€”"}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs">{r.survey_status || "â€”"}</td>
+                  <td className="px-3 py-2"><span className={"text-[11px] font-semibold border rounded px-1.5 py-0.5 whitespace-nowrap " + tone(r.request_status)}>{r.request_status}</span></td>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-500">{r.reqra_number || "â€”"}</td>
+                  <td className="px-3 py-2">{countBadge(r)}</td>
+                </tr>
+              ))}
+              {!loading && rows.length === 0 && (
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-gray-400 text-sm">{emptyText}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div className="px-6 py-3 flex items-center justify-between border-t border-gray-100">
+          <p className="text-xs text-gray-500">Page {page} of {fmt(totalPages)} Â· {fmt(total)} rows</p>
+          <div className="flex gap-2">
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
+              className="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-semibold bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+              <ChevronLeft className="w-3.5 h-3.5" /> Prev
+            </button>
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              className="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-semibold bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40">
+              Next <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Detail side panel â€” drag its left edge to resize */}
+      {open && (
+        <div style={{ width: panelW }}
+          className="shrink-0 relative border-l border-gray-200 bg-white flex flex-col overflow-hidden h-full">
+          <div onMouseDown={startResize} title="Drag to resize"
+            className="absolute left-0 inset-y-0 w-1.5 z-10 cursor-col-resize hover:bg-blue-300/70 active:bg-blue-400/80" />
+          <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-2 shrink-0">
+            <div>
+              <p className="font-mono text-sm text-blue-700 break-all">{open.req_number}</p>
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                <span className={"text-[11px] font-semibold border rounded px-1.5 py-0.5 " + tone(detail?.request_status)}>{detail?.request_status || "â€¦"}</span>
+                <span title="Request owner â€” saving an edit assigns an unowned request to the editor"
+                  className={"text-[11px] font-semibold border rounded px-1.5 py-0.5 " + (detail?.assigned_to ? "bg-violet-50 text-violet-700 border-violet-200" : "bg-gray-50 text-gray-500 border-gray-200")}>
+                  {detail ? (detail.assigned_to ? `Assigned: ${detail.assigned_to}` : "Unassigned") : "â€¦"}
+                  {detail ? (detail.assigned_to ? `مسؤول: ${detail.assigned_to}` : "غير مسؤول") : "…"}
+                </span>
+              </div>
+              </div>
+                {detail && <button onClick={() => navigate("/?req=" + encodeURIComponent(open.req_number) + (mapLayer ? "&layer=" + encodeURIComponent(mapLayer) : ""))}
+                  className="inline-flex items-center text-[11px] font-semibold text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5 hover:bg-emerald-50 disabled:opacity-40"
+                  disabled={!detail?.has_geometry}>
+                  <MapIcon className="w-3 h-3 mr-1" /> عرض على الخريطة
+                  {detail?.has_geometry ? ` (${fmt(detail.geometry_count)})` : ""}
+                </button>}
+          </div>
+
+          {infoBusy && !detail && <p className="p-5 text-sm text-gray-400 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loadingâ€¦</p>}
+
+          {detail && (
+            <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="p-5 space-y-6">
+              {/* Request info */}
+              <FormGroup title="Request info">
+              <FormGroup title="بيانات الطلب">
+                <StaticField label="رقم الطلب" value={detail.req_number} mono />
+                <TextField label="تاريخ التوزيع" type="date" value={form.distribution_date}
+                  onChange={(v) => setF("distribution_date", v)} />
+                <TextField label="تاريخ الرفع المساحي (بديل)" type="date" value={form.alt_survey_date}
+                  onChange={(v) => setF("alt_survey_date", v)} />
+                <TextField label="مقدم الطلب" value={form.applicant} onChange={(v) => setF("applicant", v)} />
+                <TextField label="الهاتف" value={form.phone} onChange={(v) => setF("phone", v)} />
+                <SelectField label="نوع الوحدة" value={form.unit_type} onChange={(v) => setF("unit_type", v)}
+                  options={withCurrent(uniq(["أرض", "مبني"]), form.unit_type)} />
+                <TextField label="المساحة" type="number" value={form.area_value} onChange={(v) => setF("area_value", v)} />
+                <SelectField label="وحدة المساحة" value={form.area_unit} onChange={(v) => setF("area_unit", v)}
+                  options={withCurrent(uniq(formUnits), form.area_unit)} />
+                <SelectField label="المحافظة" value={form.governorate} onChange={(v) => setF("governorate", v)}
+                  options={withCurrent(uniq(govs.map((g) => g.name)), form.governorate)} />
+                <SelectField label="المركز" value={form.center} onChange={(v) => setF("center", v)}
+                  options={withCurrent(uniq(formCenters.map((c) => c.name)), form.center)} />
+                <SelectField label="القرية" value={form.village} onChange={(v) => setF("village", v)}
+                  options={withCurrent(uniq(formVillages.map((v) => v.name)), form.village)} />
+                <div className="col-span-2">
+                <div className="col-span-2">
+                  <label className={FIELD_LABEL}>العنوان</label>
+                  <textarea rows={2} value={form.address || ""}
+                    onChange={(e) => setF("address", e.target.value)}
+                    className={FIELD_INPUT} />
+                </div>
+                <TextField label="علامة مميزة" value={form.landmarks} onChange={(v) => setF("landmarks", v)} />
+                <TextField label="رقم التقنين" value={form.reqra_number} onChange={(v) => setF("reqra_number", v)} />
+
+              {/* Survey info */}
+              <FormGroup title="بيانات المعاينة">
+              <FormGroup title="بيانات المعاينة">
+                <SelectField label="المساح" value={form.surveyor} onChange={(v) => setF("surveyor", v)}
+                  options={withCurrent(uniq(staff.surveyors), form.surveyor)} />
+                <TextField label="تاريخ المعاينة" type="date" value={form.survey_date} onChange={(v) => setF("survey_date", v)} />
+                <SelectField label="حالة المعاينة" value={form.survey_status} onChange={(v) => setF("survey_status", v)}
+                <SelectField label="حالة المعاينة" value={form.survey_status} onChange={(v) => setF("survey_status", v)}
+                  options={withCurrent(uniq(SURVEY_STATUSES), form.survey_status)} />
+                <div>
+                  <label className={FIELD_LABEL}>تعليق المعاينة (المكتب الفني)</label>
+                  <textarea rows={2} value={form.survey_comment || ""}
+                    onChange={(e) => setF("survey_comment", e.target.value)}
+                    className={FIELD_INPUT} />
+                </div>
+              </FormGroup>
+              <FormGroup title="بيانات المكتب الفني">
+                <SelectField label="المكتب الفني" value={form.office} onChange={(v) => setF("office", v)}
+                  options={withCurrent(uniq(staff.offices), form.office)} />
+                <SelectField label="حالة ملفات Raw" value={form.raw_files} onChange={(v) => setF("raw_files", v)}
+                  options={withCurrent(uniq(staff.rawStatuses), form.raw_files)} />
+                <TextField label="تاريخ الإرسال الجيوديسي" type="date" value={form.geodesy_date}
+                  onChange={(v) => setF("geodesy_date", v)} />
+                <SelectField label="حالة الطلب" value={form.request_status} onChange={(v) => setF("request_status", v)}
+                  options={withCurrent(uniq(REQ_STATUSES), form.request_status)} clearable={false} />
+                <TextField label="تاريخ الإدخال" type="date" value={form.entry_date} onChange={(v) => setF("entry_date", v)} />
+                <div>
+                  <label className={FIELD_LABEL}>تعليق المكتب الفني</label>
+                  <textarea rows={2} value={form.office_comment || ""}
+                    onChange={(e) => setF("office_comment", e.target.value)}
+                    className={FIELD_INPUT} />
+                </div>
+                <TextField label="تاريخ الإرسال للمديرية" type="date" value={form.directorate_date}
+                  onChange={(v) => setF("directorate_date", v)} />
+                <StaticField label="الخريطة (Basemap)" value={form.base_map} />
+                <StaticField label="عدد المعالم الجغرافية"
+                  value={detail.has_geometry ? `${fmt(detail.geometry_count)} معلم` : null} />
+                <StaticField label="عدد المعالم الجغرافية"
+
+              <div>
+                <button onClick={save} disabled={saveBusy}
+                  className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                  <Save className="w-3.5 h-3.5 mr-1.5" /> حفظ التغييرات
+                </button>
+                {note && (
+                  <p className={"mt-2 text-xs " + (note.ok ? "text-emerald-600" : "text-red-600")}>
+                    {note.ok || note.err}
+                  </p>
+                )}
+              </div>
+
+              {/* History */}
+              <div>
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5" /> History
+                </p>
+                <ul className="space-y-2">
+                  {(detail.history || []).map((h, i) => (
+                    <li key={i} className="text-xs text-gray-600 border-l-2 border-gray-100 pl-3">
+                      <span className="font-semibold text-slate-700">{h.action}</span>{" "}
+                      <span className="text-gray-400">by {h.username}</span>
+                      <span className="block text-gray-400">{h.created_at ? h.created_at.replace("T", " ").slice(0, 19) : ""}</span>
+                      {h.new_values && (
+                        <span className="block text-gray-500 mt-0.5 truncate max-w-[360px]">
+                          {JSON.stringify(h.new_values.request_status || "new record")}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                  {!(detail.history || []).length && <li className="text-xs text-gray-400">No recorded changes yet</li>}
+                </ul>
+              </div>
+            </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Requests() {
+  return <RequestLedger base="/api/v1/requests" title="Company Requests" />;
+}

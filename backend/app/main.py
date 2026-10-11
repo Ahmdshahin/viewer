@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry
+from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -35,6 +35,11 @@ app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=[
 app.include_router(features.router, prefix=f"{settings.API_V1_STR}/features", tags=["features"])
 app.include_router(prefs.router, prefix=f"{settings.API_V1_STR}/prefs", tags=["prefs"])
 app.include_router(update_geometry.router, prefix=f"{settings.API_V1_STR}/update", tags=["update"])
+app.include_router(requests.router, prefix=f"{settings.API_V1_STR}/requests", tags=["requests"])
+app.include_router(mudryia_requests.router, prefix=f"{settings.API_V1_STR}/mudryia-requests", tags=["mudryia-requests"])
+app.include_router(lookups.router, prefix=f"{settings.API_V1_STR}/lookups", tags=["lookups"])
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
+app.include_router(reports.router, prefix=f"{settings.API_V1_STR}/reports", tags=["reports"])
 
 @app.get("/")
 def root():

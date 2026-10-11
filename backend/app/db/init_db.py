@@ -20,7 +20,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import get_engine, SessionLocal, Base
 import app.db.models  # noqa: F401
-from app.db.models import User, AuditTrail
+from app.db.models import User, AuditTrail, AreaUnit, Governorate
 
 logging.basicConfig(
     level=logging.INFO,
@@ -98,7 +98,7 @@ def create_tables_and_indexes() -> None:
             # Base.metadata.create_all usually creates them if spatial_index=True is set,
             # but this acts as an explicit guarantee for the E2E spatial tests.
             # GiST spatial indexes are created by the models (spatial_index=True).
-            logger.info("GiST spatial indexes confirmed on land, eshghalat, and point.")
+            logger.info("GiST spatial indexes confirmed on lands, eshghalat, and points.")
     finally:
         conn.close()
 
@@ -117,16 +117,31 @@ def ensure_schema_columns() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB;")
-            for table in ("land", "eshghalat", "point"):
+            for table in ("lands", "eshghalat", "points"):
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS created_by VARCHAR(100);")
-            cur.execute("SELECT conname FROM pg_constraint WHERE conname = 'land_req_number_unique';")
+            # The survey date added to docs/template.xlsx is stored on both
+            # request ledgers, so an older database needs the column too or the
+            # ORM will fail to load a row. Same for the legacy intake columns
+            # (landmarks / field team / the three workflow dates / raw files)
+            # that the old sheets carry and the shared template does not.
+            for table in ("requests", "mudryia_requests"):
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Survey_Date" DATE;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Landmarks" TEXT;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Field_Team" VARCHAR(120);')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Distribution_Date" DATE;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Geodesy_Date" DATE;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Directorate_Date" DATE;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Raw_Files" VARCHAR(200);')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Alt_Survey_Date" DATE;')
+                cur.execute(f'ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS "Base_Map" VARCHAR(50);')
+            cur.execute("SELECT conname FROM pg_constraint WHERE conname = 'lands_req_number_unique';")
             if not cur.fetchone():
-                cur.execute('SELECT "Req_Number", COUNT(*) FROM land GROUP BY "Req_Number" HAVING COUNT(*) > 1 LIMIT 5;')
+                cur.execute('SELECT "Req_Number", COUNT(*) FROM lands GROUP BY "Req_Number" HAVING COUNT(*) > 1 LIMIT 5;')
                 dups = cur.fetchall()
                 if dups:
-                    raise RuntimeError(f"land has duplicate request numbers, cannot add UNIQUE constraint: {dups}")
-                cur.execute('ALTER TABLE land ADD CONSTRAINT land_req_number_unique UNIQUE ("Req_Number");')
+                    raise RuntimeError(f"lands has duplicate request numbers, cannot add UNIQUE constraint: {dups}")
+                cur.execute('ALTER TABLE lands ADD CONSTRAINT lands_req_number_unique UNIQUE ("Req_Number");')
             logger.info("Schema columns/constraints verified.")
     finally:
         conn.close()
@@ -169,6 +184,25 @@ def seed_admin_user(db: Session = None) -> User:
             db.close()
 
 
+def seed_initial_lookups(db: Session = None) -> None:
+    """Idempotently seed the base area units and an example governorate."""
+    should_close = False
+    if db is None:
+        db = SessionLocal(bind=get_engine())
+        should_close = True
+    try:
+        for code, name in (("sqm", "متر مربع"), ("kirat", "قيراط"), ("share", "سهم"), ("feddan", "فدان")):
+            if not db.query(AreaUnit).filter(AreaUnit.code == code).first():
+                db.add(AreaUnit(code=code, name=name))
+        if not db.query(Governorate).filter(Governorate.code == "26").first():
+            db.add(Governorate(code="26", name="سوهاج"))
+        db.commit()
+        logger.info("Seeded initial lookups (area units + base governorate).")
+    finally:
+        if should_close:
+            db.close()
+
+
 def init_db() -> None:
     """Complete lifecycle execution for Milestone 1 database setup."""
     logger.info("=== Starting GeoPortal Database Initialization ===")
@@ -177,6 +211,7 @@ def init_db() -> None:
     create_tables_and_indexes()
     ensure_schema_columns()
     seed_admin_user()
+    seed_initial_lookups()
     logger.info("=== Database Initialization Completed Successfully ===")
 
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import Map, { Popup, Marker, useControl } from "react-map-gl/maplibre";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
@@ -175,6 +176,40 @@ function DrawControl(props) {
 const TOPOLOGY_TABLE = "lands";
 const MVT_NAME = { lands: "land", eshghalat: "eshghalat", points: "point" };
 
+// Request ledger lifecycle status -> colors used for the optional
+// "Color by request status" mode (and its legend).
+const REQ_STATUS_COLORS = {
+  "مقبول": "#16a34a",
+  "مرفوض": "#dc2626",
+  "قيد المعاينة": "#f59e0b",
+  "بالمراجعة الفنية": "#2563eb",
+  "جديد": "#94a3b8",
+  "تم الرفع ع المنظومة": "#0ea5e9",
+  "لم يتم الرفع ع المنظومة": "#f97316",
+  "لم يتم الارسال": "#8b5cf6",
+  "تم الارسال": "#10b981",
+  "جاري العمل عليه": "#6366f1",
+  "لم يتم العمل عليه": "#d946ef",
+  "مكتمل ولم يرسل": "#84cc16",
+};
+// Maplibre data expression (fill/circle color) driven by the joined ledger
+// status shipped inside each tile; unmatched/null resolves to slate gray.
+const STATUS_MATCH = [
+  "match", ["get", "Request_Status"],
+  ...Object.entries(REQ_STATUS_COLORS).flatMap(([s, c]) => [s, c]),
+  "#6b7280",
+];
+// Geometry tables tracked against the request ledger (they carry Req_Number
+// and, since the tiles join the ledger, a Request_Status property).
+// Geometry layers whose request status is coloured / filtered. `mudryia` reads
+// its status from the mudryia_requests ledger (not the company requests ledger),
+// which the backend resolves per layer.
+const REQUEST_GEOM_TABLES = ["lands", "eshghalat", "points", "mudryia"];
+// Sentinel for the "Other / no request" legend entry: features with no matching
+// row in the request ledger (or with no status recorded). Mirrors OTHER_STATUS
+// in backend/app/api/tiles.py.
+const OTHER_STATUS = "__other__";
+
 // UI layer key (config table name) -> real PostGIS table used by the API
 const apiLayer = (k) => k;
 
@@ -254,8 +289,35 @@ function ResizeHandle({ anchor, width, min, max, onWidth }) {
 
 export default function MapViewer({ me }) {
   const isEditor = !!(me && (me.role === "admin" || me.role === "editor" || (me.permissions || []).includes("edit_geometry")));
+  const navigate = useNavigate();
   const mapRef = useRef();
   const mapApiRef = useRef(null); // maplibre instance, captured on 'load'
+
+  // Optional /?req=<request number>[&layer=<table>] deep-link handled once after
+  // config+map ready. `layer` restricts the focus to one table, which the mudryia
+  // ledger needs since its points are not part of the cadastral layers.
+  const reqUrlParam = useMemo(() => {
+    try { return (new URLSearchParams(window.location.search).get("req") || "").trim(); } catch (e) { return ""; }
+  }, []);
+  const reqUrlLayer = useMemo(() => {
+    try { return (new URLSearchParams(window.location.search).get("layer") || "").trim(); } catch (e) { return ""; }
+  }, []);
+  const reqZoomDoneRef = useRef(false);
+
+  // Optional /?reqs=<n1,n2,...>[&ledger=company|mudryia] deep-link from the
+  // request ledgers ("show page results on map"): matching request features
+  // get a gold outline. No zoom — the set can span the whole governorate.
+  const reqsUrlParam = useMemo(() => {
+    try {
+      const raw = (new URLSearchParams(window.location.search).get("reqs") || "").trim();
+      if (!raw) return [];
+      return raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200);
+    } catch (e) { return []; }
+  }, []);
+  const reqsLedger = useMemo(() => {
+    try { return (new URLSearchParams(window.location.search).get("ledger") || "").trim(); } catch (e) { return ""; }
+  }, []);
+  const [reqsDismissed, setReqsDismissed] = useState(false);
 
   // Layers come from the admin-curated map_layers table (any logged-in user).
   const [layersCfg, setLayersCfg] = useState([]); // [{table,label,color,gtype,label_field}]
@@ -277,6 +339,11 @@ export default function MapViewer({ me }) {
 
   const [layerVisibility, setLayerVisibility] = useState({});
   const [layerStyle, setLayerStyle] = useState({});
+  const [statusColor, setStatusColor] = useState(false); // color polygons/points by request status
+  // Requested statuses to keep on the map + in the attribute table.
+  // Empty = no filtering. OTHER_STATUS matches features with no ledger row.
+  const [statusFilter, setStatusFilter] = useState([]);
+  const [urlNotice, setUrlNotice] = useState(""); // banner for failed ?req= deep-link
   const [layerOrder, setLayerOrder] = useState([]);
   const [dragKey, setDragKey] = useState(null);
   const orderedMeta = [...layersCfg].sort((a, b) => layerOrder.indexOf(a.table) - layerOrder.indexOf(b.table));
@@ -334,30 +401,62 @@ const moveLayer = (key, dir) => {
     if (map.getSource(id)) return;
     map.addSource(id, spec);
   };
+  // MapLibre filter for the active status selection. Features whose
+  // Request_Status is not selected are dropped; when OTHER_STATUS is chosen we
+  // also keep features that match none of the known statuses (incl. no status).
+  const statusLayerFilter = () => {
+    if (!statusFilter.length) return null;
+    const known = statusFilter.filter((s) => s !== OTHER_STATUS);
+    const parts = [];
+    if (known.length) parts.push(["in", ["get", "Request_Status"], ["literal", known]]);
+    if (statusFilter.includes(OTHER_STATUS)) {
+      parts.push(["!", ["in", ["get", "Request_Status"], ["literal", Object.keys(REQ_STATUS_COLORS)]]]);
+    }
+    if (!parts.length) return null;
+    return parts.length === 1 ? parts[0] : ["any", ...parts];
+  };
+
   const buildDynamic = (map = rawMap()) => {
     if (!map || typeof map.addSource !== "function") return;
     clearDynamic(map);
+    const stFilter = statusLayerFilter();
     layerOrder.forEach((k) => {
       const cfg = layerByTable(k);
       if (!cfg) return;
       const sname = mvtName(cfg.table);
       const style = layerStyle[cfg.table] || { color: cfg.color || "#3388ff", opacity: 0.5 };
       const vis = layerVisibility[cfg.table] ? "visible" : "none";
+      const fillC = statusColor && !isLineLike(cfg.gtype) && REQUEST_GEOM_TABLES.includes(cfg.table) ? STATUS_MATCH : style.color;
       const url = `/api/v1/layers/${apiLayer(cfg.table)}/tiles/{z}/{x}/{y}.pbf?token=${authToken}${selection && selection.id ? `&sel=${selection.id}` : ""}`;
+      // Only the ledger-backed geometry tables carry Request_Status to filter on.
+      const withStatusFilter = (spec) =>
+        stFilter && REQUEST_GEOM_TABLES.includes(cfg.table) ? { ...spec, filter: stFilter } : spec;
       addSrc(map, k, { type: "vector", tiles: [url], minzoom: 0, maxzoom: 22 });
       if (isPointLike(cfg.gtype)) {
-        addDyn(map, `${k}-circle`, { source: k, "source-layer": sname, type: "circle", paint: { "circle-radius": 5, "circle-color": style.color, "circle-opacity": style.opacity, "circle-stroke-width": 1, "circle-stroke-color": "#fff" }, layout: { visibility: vis } });
+        addDyn(map, `${k}-circle`, withStatusFilter({ source: k, "source-layer": sname, type: "circle", paint: { "circle-radius": 5, "circle-color": fillC, "circle-opacity": style.opacity, "circle-stroke-width": 1, "circle-stroke-color": "#fff" }, layout: { visibility: vis } }));
       } else if (isLineLike(cfg.gtype)) {
         addDyn(map, `${k}-line`, { source: k, "source-layer": sname, type: "line", paint: { "line-color": style.color, "line-opacity": style.opacity, "line-width": 2 }, layout: { visibility: vis } });
       } else {
-        addDyn(map, `${k}-fill`, { source: k, "source-layer": sname, type: "fill", paint: { "fill-color": style.color, "fill-opacity": style.opacity }, layout: { visibility: vis } });
-        addDyn(map, `${k}-casing`, { source: k, "source-layer": sname, type: "line", paint: { "line-color": "#ffffff", "line-width": 4, "line-opacity": 0.9 }, layout: { visibility: vis } });
-        addDyn(map, `${k}-line`, { source: k, "source-layer": sname, type: "line", paint: { "line-color": style.color, "line-opacity": style.opacity, "line-width": 2 }, layout: { visibility: vis } });
+        addDyn(map, `${k}-fill`, withStatusFilter({ source: k, "source-layer": sname, type: "fill", paint: { "fill-color": fillC, "fill-opacity": style.opacity }, layout: { visibility: vis } }));
+        addDyn(map, `${k}-casing`, withStatusFilter({ source: k, "source-layer": sname, type: "line", paint: { "line-color": "#ffffff", "line-width": 4, "line-opacity": 0.9 }, layout: { visibility: vis } }));
+        addDyn(map, `${k}-line`, withStatusFilter({ source: k, "source-layer": sname, type: "line", paint: { "line-color": style.color, "line-opacity": style.opacity, "line-width": 2 }, layout: { visibility: vis } }));
       }
       if (labelLayers[cfg.table]) {
-        addDyn(map, `${k}-label`, { source: k, "source-layer": sname, type: "symbol", minzoom: 14, layout: { "text-field": ["get", cfg.label_field || "Req_Number"], "text-size": 11, "text-anchor": "center" }, paint: { "text-color": "#1e293b", "text-halo-color": "#ffffff", "text-halo-width": 1.5 } });
+        addDyn(map, `${k}-label`, withStatusFilter({ source: k, "source-layer": sname, type: "symbol", minzoom: 14, layout: { "text-field": ["get", cfg.label_field || "Req_Number"], "text-size": 11, "text-anchor": "center" }, paint: { "text-color": "#1e293b", "text-halo-color": "#ffffff", "text-halo-width": 1.5 } }));
       }
     });
+    if (reqsUrlParam.length && !reqsDismissed) {
+      const targets = reqsLedger === "mudryia" ? ["mudryia"] : ["lands", "eshghalat", "points"];
+      const hlFilter = ["in", ["get", "Req_Number"], ["literal", reqsUrlParam]];
+      targets.forEach((k) => {
+        const cfg = layerByTable(k);
+        if (!cfg) return;
+        const sname = mvtName(cfg.table);
+        const f = stFilter && REQUEST_GEOM_TABLES.includes(cfg.table) ? ["all", stFilter, hlFilter] : hlFilter;
+        addDyn(map, `reqhl-${k}-line`, { source: k, "source-layer": sname, type: "line", paint: { "line-color": "#f1c40f", "line-width": 4, "line-opacity": 0.95 }, filter: f });
+        addDyn(map, `reqhl-${k}-circle`, { source: k, "source-layer": sname, type: "circle", paint: { "circle-radius": 7, "circle-color": "#f1c40f", "circle-opacity": 0.9, "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" }, filter: f });
+      });
+    }
     if (searchResults && searchResults.features && searchResults.features.length) {
       addSrc(map, "search-results", { type: "geojson", data: searchResults });
       addDyn(map, "search-highlight", { source: "search-results", type: "line", paint: { "line-color": "#f1c40f", "line-width": 4 } });
@@ -480,12 +579,12 @@ const moveLayer = (key, dir) => {
   };
 
   // Rebuild dynamic sources/layers after the base style loads, and whenever
-  // the layer set/order/basemap/selection/search/preview changes.
+  // the layer set/order/basemap/selection/search/status-mode/preview changes.
   useEffect(() => {
     if (!mapReady || !configLoaded) return;
     buildDynamic();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapReady, configLoaded, layerOrder, selection && selection.id, basemap, searchResults, uploadPreview]);
+  }, [mapReady, configLoaded, layerOrder, selection && selection.id, basemap, searchResults, uploadPreview, statusColor, statusFilter]);
   // Keep paint + visibility + labels in sync without rebuilding sources.
   useEffect(() => {
     if (!mapReady || !configLoaded) return;
@@ -496,15 +595,16 @@ const moveLayer = (key, dir) => {
       if (!cfg) return;
       const style = layerStyle[cfg.table] || { color: cfg.color || "#3388ff", opacity: 0.5 };
       const vis = layerVisibility[cfg.table] ? "visible" : "none";
+      const fillC = statusColor && !isLineLike(cfg.gtype) && REQUEST_GEOM_TABLES.includes(cfg.table) ? STATUS_MATCH : style.color;
       const ids = isPointLike(cfg.gtype) ? [`${k}-circle`] : isLineLike(cfg.gtype) ? [`${k}-line`] : [`${k}-fill`, `${k}-casing`, `${k}-line`];
       ids.forEach((id) => {
         if (!map.getLayer(id)) return;
         map.setLayoutProperty(id, "visibility", vis);
         if (id.endsWith("-fill")) {
-          map.setPaintProperty(id, "fill-color", style.color);
+          map.setPaintProperty(id, "fill-color", fillC);
           map.setPaintProperty(id, "fill-opacity", style.opacity);
         } else if (id.endsWith("-circle")) {
-          map.setPaintProperty(id, "circle-color", style.color);
+          map.setPaintProperty(id, "circle-color", fillC);
           map.setPaintProperty(id, "circle-opacity", style.opacity);
         } else if (id.endsWith("-casing")) {
           // white casing stays white
@@ -522,7 +622,7 @@ const moveLayer = (key, dir) => {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapReady, configLoaded, layerOrder, layerStyle, layerVisibility, labelLayers]);
+  }, [mapReady, configLoaded, layerOrder, layerStyle, layerVisibility, labelLayers, statusColor]);
 
   // Re-scan the map view for legend entries whenever the visible layer set
   // or the selection (which retiles dynamic sources) changes.
@@ -775,6 +875,56 @@ const moveLayer = (key, dir) => {
     loadStats().then((stats) => fitStatsOnce(stats));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configLoaded]);
+  // ?req=<request number> deep-link: resolve the geometry, zoom + highlight it,
+  // and enrich the popup with the ledger status. Runs once when ready.
+  useEffect(() => {
+    if (!configLoaded || !mapReady || !reqUrlParam || reqZoomDoneRef.current) return;
+    reqZoomDoneRef.current = true;
+    (async () => {
+      setSearchQuery(reqUrlParam);
+      const hdr = authHeaders();
+      const matches = [];
+      try {
+        let keys = layersCfg.map((l) => l.table).filter(Boolean);
+        if (reqUrlLayer) keys = keys.filter((k) => k === reqUrlLayer);
+        const responses = await Promise.all(keys.map((k) =>
+          axios.get(`/api/v1/layers/${apiLayer(k)}/search?q=` + encodeURIComponent(reqUrlParam), { headers: hdr }).catch(() => null)));
+        responses.forEach((res, i) => {
+          const fs = (res && res.data && res.data.features) || [];
+          fs.forEach((f) => matches.push({ layer: keys[i], feature: f }));
+        });
+      } catch (e) { /* ignore */ }
+      if (matches.length) {
+        setSearchMatches(matches);
+        setSearchResults({ type: "FeatureCollection", features: matches.map((m) => m.feature) });
+        let req = null;
+        try {
+          // The ledger that owns the matched layer: mudryia points resolve
+          // against the mudryia ledger, everything else against requests.
+          const ledger = reqUrlLayer === "mudryia" ? "/api/v1/mudryia-requests" : "/api/v1/requests";
+          const rres = await axios.get(ledger, { headers: hdr, params: { q: reqUrlParam, per_page: 1 } });
+          req = (rres.data && rres.data.items && rres.data.items[0]) || null;
+        } catch (e) { /* ignore */ }
+        zoomToFeature(matches[0].feature, 17);
+        if (req) {
+          setSelectedFeature((prev) => (prev ? {
+            ...prev,
+            properties: {
+              ...(prev.properties || {}),
+              Request_Status: req.request_status,
+              Survey_Status: req.survey_status,
+              Applicant: req.applicant,
+            },
+          } : prev));
+        }
+      } else {
+        setSearchMatches([]);
+        setSearchResults(null);
+        setUrlNotice(`No geometry found for request ${reqUrlParam}.`);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configLoaded, mapReady, reqUrlParam, reqUrlLayer]);
   useEffect(() => {
     if (!configLoaded) return;
     loadStats(selection ? selection.id : null);
@@ -786,11 +936,11 @@ const moveLayer = (key, dir) => {
   }, [tableFilter]);
   useEffect(() => {
     setTablePage(0);
-  }, [activeTable, debouncedFilter, selection && selection.id]);
+  }, [activeTable, debouncedFilter, selection && selection.id, statusFilter]);
   useEffect(() => {
-    if (activeTable) fetchTable(tablePage, debouncedFilter, selection ? selection.id : null, activeTable);
+    if (activeTable) fetchTable(tablePage, debouncedFilter, selection ? selection.id : null, activeTable, statusFilter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTable, debouncedFilter, tablePage, selection && selection.id]);
+  }, [activeTable, debouncedFilter, tablePage, selection && selection.id, statusFilter]);
   useEffect(() => {
     if (!queryLayer || layerCols[queryLayer]) return;
     axios.get(`/api/v1/layers/${apiLayer(queryLayer)}/rows`, {
@@ -1026,12 +1176,21 @@ const moveLayer = (key, dir) => {
       );
     }
   };
-  const fetchTable = async (page, filt, selId, table) => {
+  const fetchTable = async (page, filt, selId, table, statuses) => {
     if (!table) return;
     try {
       const res = await axios.get(`/api/v1/layers/${apiLayer(table)}/rows`, {
         headers: authHeaders(),
-        params: { limit: TABLE_PAGE_SIZE, offset: page * TABLE_PAGE_SIZE, q: filt || "", ...(selId ? { sel: selId } : {}) },
+        params: {
+          limit: TABLE_PAGE_SIZE,
+          offset: page * TABLE_PAGE_SIZE,
+          q: filt || "",
+          ...(selId ? { sel: selId } : {}),
+          ...(statuses && statuses.length ? { status: statuses } : {}),
+        },
+        // Repeated "status=A&status=B" so FastAPI binds the List[str] param
+        // (axios would otherwise send "status[]=A", which it ignores).
+        paramsSerializer: { indexes: null },
       });
       setTableRows({ items: res.data.items || [], total: res.data.total || 0, columns: normCols(res.data.columns) });
       setLayerCols((prev) => ({ ...prev, [table]: normCols(res.data.columns) }));
@@ -1103,16 +1262,40 @@ const moveLayer = (key, dir) => {
     setCtxCopied(false);
   };
 
+  const reqLedgerFor = (layerId) => {
+    const table = (layerId || "").replace(/-(fill|casing|line|circle|label)$/, "");
+    return table === "mudryia" ? "/api/v1/mudryia-requests" : "/api/v1/requests";
+  };
+  const isMudryiaLayer = (layerId) => reqLedgerFor(layerId).includes("mudryia");
+
   const onClick = (event) => {
     if (activeTool === 'polyselect' || activeTool === 'print') return;
     const feature = event.features && event.features[0];
     if (feature) {
+      const layerId = feature.layer && feature.layer.id;
+      const props = feature.properties || {};
       setSelectedFeature({
         longitude: event.lngLat.lng,
         latitude: event.lngLat.lat,
-        properties: feature.properties,
-        layer: feature.layer && feature.layer.id
+        properties: props,
+        layer: layerId,
+        req: null
       });
+      const rn = props.Req_Number || props.req_number;
+      if (rn && !props.Request_Status) {
+        const ledger = reqLedgerFor(layerId);
+        const token = localStorage.getItem("token");
+        axios.get(ledger, { params: { q: rn, per_page: 1 }, headers: token ? { Authorization: "Bearer " + token } : {} })
+          .then((res) => {
+            const it = res.data && res.data.items && res.data.items[0];
+            if (it) {
+              setSelectedFeature((prev) => (prev && prev.layer === layerId && (prev.properties.Req_Number || prev.properties.req_number) === rn
+                ? { ...prev, req: { number: rn, status: it.request_status, survey: it.survey_status, applicant: it.applicant, isMudryia: isMudryiaLayer(layerId), ledger } }
+                : prev));
+            }
+          })
+          .catch(() => {});
+      }
     }
   };
 
@@ -1251,8 +1434,16 @@ const moveLayer = (key, dir) => {
       : isLineLike(cfg.gtype) ? [`${cfg.table}-line`]
       : [`${cfg.table}-fill`]
   );
-  const displayCols = (tableRows.columns && tableRows.columns.length ? tableRows.columns.slice(0, 4).map((c) => (typeof c === "string" ? c : c.name)) : ["Req_Number", "Owner_Name", "Area_SQM"]);
-  const colLabel = (c) => (c === "Req_Number" ? "Request" : c === "Owner_Name" ? "Owner" : c === "Area_SQM" ? "Area m²" : c);
+  // First few columns, plus Request_Status (joined from the ledger) so the
+  // active status filter is visible in the rows it produced.
+  const displayCols = (() => {
+    const all = (tableRows.columns || []).map((c) => (typeof c === "string" ? c : c.name));
+    const base = all.length ? all.slice(0, 4) : ["Req_Number", "Owner_Name", "Area_SQM"];
+    if (!all.includes("Request_Status") || base.includes("Request_Status")) return base;
+    const i = base.indexOf("Req_Number");
+    return i >= 0 ? [...base.slice(0, i + 1), "Request_Status", ...base.slice(i + 1)] : ["Request_Status", ...base];
+  })();
+  const colLabel = (c) => (c === "Req_Number" ? "Request" : c === "Owner_Name" ? "Owner" : c === "Area_SQM" ? "Area m²" : c === "Request_Status" ? "Status" : c);
 
   // Union of loaded layer extents - used by the Print Layout locator inset.
   const fullExtent = useMemo(() => {
@@ -1326,6 +1517,21 @@ const moveLayer = (key, dir) => {
               </button>
             </div>
           </div>
+          <label className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 text-xs text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={statusColor}
+              onChange={(e) => {
+                setStatusColor(e.target.checked);
+                // The status panel is the only control for this filter, and it is
+                // only shown while colouring is on - so drop the filter with it
+                // rather than leaving the map silently filtered.
+                if (!e.target.checked) setStatusFilter([]);
+              }}
+              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            Color by request status
+          </label>
           <div
             className={"p-3 space-y-3" + (orderedMeta.length > 4 ? " overflow-y-auto" : "")}
             style={orderedMeta.length > 4 ? { maxHeight: "min(31rem, calc(100vh - 16rem))" } : undefined}
@@ -1917,10 +2123,24 @@ const moveLayer = (key, dir) => {
               <X className="w-4 h-4" />
             </button>
           </div>
+          {statusFilter.length > 0 && (
+            <div className="px-3 py-1.5 bg-emerald-50 border-b border-emerald-100 flex items-start justify-between gap-2 flex-shrink-0">
+              <span className="text-[11px] font-semibold text-emerald-800 leading-snug">
+                Status:{" "}
+                {statusFilter
+                  .map((s) => (s === OTHER_STATUS ? "Other / no request" : s))
+                  .join("، ")}{" "}
+                ({tableRows.total} rows)
+              </span>
+              <button onClick={() => setStatusFilter([])} className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 flex-shrink-0">
+                Clear
+              </button>
+            </div>
+          )}
           {selection && (
             <div className="px-3 py-1.5 bg-cyan-50 border-b border-cyan-100 flex items-center justify-between flex-shrink-0">
               <span className="text-[11px] font-semibold text-cyan-800">Filtered to selection ({tableRows.total} rows)</span>
-              <button onClick={async () => { await deleteSelection(); setTablePage(0); if (activeTable) fetchTable(0, debouncedFilter, null, activeTable); }} className="text-[11px] font-semibold text-cyan-700 hover:text-cyan-900">Show all</button>
+              <button onClick={async () => { await deleteSelection(); setTablePage(0); if (activeTable) fetchTable(0, debouncedFilter, null, activeTable, statusFilter); }} className="text-[11px] font-semibold text-cyan-700 hover:text-cyan-900">Show all</button>
             </div>
           )}
           <div className="p-3 overflow-y-auto">
@@ -1955,6 +2175,21 @@ const moveLayer = (key, dir) => {
                                 let val = it[c];
                                 if (c === "Area_SQM" && val !== undefined && val !== null && val !== "-" && Number.isFinite(Number(val))) val = Number(val).toLocaleString();
                                 const isNull = val === null || val === undefined || val === "";
+                                if (c === "Request_Status") {
+                                  const col = REQ_STATUS_COLORS[val] || "#6b7280";
+                                  return (
+                                    <td key={c} className="px-3 py-2">
+                                      {isNull ? (
+                                        <span className="text-gray-400">-</span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: col }} />
+                                          <span className="text-gray-700">{String(val)}</span>
+                                        </span>
+                                      )}
+                                    </td>
+                                  );
+                                }
                                 return (
                                   <td key={c} className={"px-3 py-2 " + (c === "Req_Number" ? "font-medium text-gray-800" : "text-gray-600")}>
                                     {isNull ? "-" : String(val)}
@@ -2093,6 +2328,89 @@ const moveLayer = (key, dir) => {
         onMove={moveLayer}
       />
 
+      {/* Request-status legend / filter, shown only while status coloring is active.
+          Clicking an entry toggles it in the status filter (map + attribute table). */}
+      {statusColor && (
+        <div className="absolute bottom-14 left-[10px] z-20 w-56 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden">
+          <div className="flex items-center justify-between px-2.5 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+            <span>Request status</span>
+            {statusFilter.length > 0 && (
+              <button
+                onClick={() => setStatusFilter([])}
+                className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 normal-case tracking-normal"
+                title="Clear the status filter"
+              >
+                Clear ({statusFilter.length})
+              </button>
+            )}
+          </div>
+          <div className="max-h-[40vh] overflow-y-auto py-1">
+            {Object.entries(REQ_STATUS_COLORS).map(([s, c]) => {
+              const on = statusFilter.includes(s);
+              return (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter((prev) => (on ? prev.filter((x) => x !== s) : [...prev, s]))}
+                  className={"w-full flex items-center gap-2 px-3 py-1 text-left transition " + (on ? "bg-emerald-50" : "hover:bg-gray-50")}
+                  title={on ? `Stop filtering by "${s}"` : `Filter map and table by "${s}"`}
+                >
+                  <span
+                    className={"w-3 h-3 rounded-[2px] flex-shrink-0 border " + (on ? "border-emerald-700 ring-1 ring-emerald-500" : "border-gray-300")}
+                    style={{ backgroundColor: c }}
+                  />
+                  <span className={"text-xs " + (on ? "font-bold text-emerald-900" : "text-gray-700")}>{s}</span>
+                </button>
+              );
+            })}
+            {(() => {
+              const on = statusFilter.includes(OTHER_STATUS);
+              return (
+                <button
+                  onClick={() => setStatusFilter((prev) => (on ? prev.filter((x) => x !== OTHER_STATUS) : [...prev, OTHER_STATUS]))}
+                  className={"w-full flex items-center gap-2 px-3 py-1 text-left transition " + (on ? "bg-emerald-50" : "hover:bg-gray-50")}
+                  title={on ? "Stop filtering by other" : "Filter by features with no request in the ledger"}
+                >
+                  <span
+                    className={"w-3 h-3 rounded-[2px] flex-shrink-0 border " + (on ? "border-emerald-700 ring-1 ring-emerald-500" : "border-gray-300")}
+                    style={{ backgroundColor: "#6b7280" }}
+                  />
+                  <span className={"text-xs " + (on ? "font-bold text-emerald-900" : "text-gray-500")}>Other / no request</span>
+                </button>
+              );
+            })()}
+          </div>
+          {statusFilter.length > 0 && (
+            <div className="px-3 py-1.5 border-t border-gray-100 text-[10px] text-gray-500 bg-gray-50">
+              Filtering map and attribute table
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Deep-link notice (e.g. ?req= had no geometry) */}
+      {urlNotice && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-amber-500 text-white rounded-lg shadow-xl px-4 py-2.5 text-sm font-medium flex items-center gap-3">
+          <span>{urlNotice}</span>
+          <button onClick={() => setUrlNotice("")} className="bg-white/20 hover:bg-white/30 rounded px-2 py-0.5 text-xs font-bold">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Ledger highlight (e.g. ?reqs= from the request pages) */}
+      {!!reqsUrlParam.length && !reqsDismissed && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-slate-900 text-white rounded-lg shadow-xl px-4 py-2.5 text-sm font-medium flex items-center gap-3">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: "#f1c40f" }} />
+          <span>Highlighting {reqsUrlParam.length} request{reqsUrlParam.length === 1 ? "" : "s"} from the ledger</span>
+          <button
+            onClick={() => { setReqsDismissed(true); try { window.history.replaceState(null, "", window.location.pathname); } catch (e) {} buildDynamic(); }}
+            className="bg-white/20 hover:bg-white/30 rounded px-2 py-0.5 text-xs font-bold"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Session-expired banner (e.g. tile 401s after token expiry) */}
       {tileAuthError && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-red-600 text-white rounded-lg shadow-xl px-4 py-2.5 text-sm font-medium flex items-center gap-3">
@@ -2167,9 +2485,10 @@ const moveLayer = (key, dir) => {
         {selectedFeature && (() => {
           const info = layerInfo(selectedFeature.layer);
           const p = selectedFeature.properties || {};
-          const FIELD_ORDER = ["Req_Number", "Owner_Name", "Layer_Type", "Area_SQM", "Area_Feddan", "X", "Y", "created_at", "created_by"];
+          const FIELD_ORDER = ["Req_Number", "Request_Status", "Survey_Status", "Owner_Name", "Layer_Type", "Area_SQM", "Area_Feddan", "X", "Y", "created_at", "created_by"];
           const COLUMN_LABELS = {
-            Req_Number: "Req No", Owner_Name: "Owner", Layer_Type: "Layer Type",
+            Req_Number: "Req No", Request_Status: "Status", Survey_Status: "Survey",
+            Owner_Name: "Owner", Layer_Type: "Layer Type",
             Area_SQM: "Area (m²)", Area_Feddan: "Area (feddan)", X: "X", Y: "Y",
             created_by: "Added by", created_at: "Added on", id: "ID",
           };
@@ -2186,6 +2505,7 @@ const moveLayer = (key, dir) => {
           const keys = [...FIELD_ORDER.filter((k) => k in p), ...Object.keys(p).filter((k) => !FIELD_ORDER.includes(k) && k !== "geometry" && k !== info.geom)];
           const present = keys.filter((k) => fmtValue(p[k]) !== null);
           const area = parseFloat(p.Area_SQM);
+          const reqMeta = selectedFeature.req || (p.Req_Number ? { number: p.Req_Number, status: p.Request_Status, survey: p.Survey_Status, isMudryia: isMudryiaLayer(selectedFeature.layer), ledger: reqLedgerFor(selectedFeature.layer) } : null);
           return (
             <Popup
               longitude={selectedFeature.longitude}
@@ -2215,6 +2535,17 @@ const moveLayer = (key, dir) => {
                       </div>
                     );
                   }
+                  if (k === "Request_Status") {
+                    return (
+                      <div key={k} className="flex justify-between gap-3 py-1 border-b border-gray-50 items-center">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Status</span>
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-800">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: (REQ_STATUS_COLORS[p[k]] || "#6b7280") }} />
+                          {rendered}
+                        </span>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={k} className="flex justify-between gap-3 py-1 border-b border-gray-50">
                       <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold pt-0.5">{prettyKey(k)}</span>
@@ -2222,6 +2553,42 @@ const moveLayer = (key, dir) => {
                     </div>
                   );
                 })}
+                {reqMeta && reqMeta.status && !present.includes("Request_Status") && (
+                  <div className="flex justify-between gap-3 py-1 border-b border-gray-50 items-center">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Request Status</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-800">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: (REQ_STATUS_COLORS[reqMeta.status] || "#6b7280") }} />
+                      {reqMeta.status}
+                    </span>
+                  </div>
+                )}
+                {reqMeta && reqMeta.survey && !present.includes("Survey_Status") && (
+                  <div className="flex justify-between gap-3 py-1 border-b border-gray-50 items-center">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Survey Status</span>
+                    <span className="text-xs text-gray-800 text-right">{reqMeta.survey}</span>
+                  </div>
+                )}
+                {reqMeta && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => {
+                        const c = [selectedFeature.longitude, selectedFeature.latitude];
+                        try { mapRef.current.flyTo({ center: c, zoom: Math.max(mapZoom || 11, 16) + 2 }); } catch (e) { /* ignore */ }
+                      }}
+                      className="flex-1 px-2 py-1.5 rounded text-[11px] font-semibold bg-white border border-blue-300 text-blue-600 hover:bg-blue-50"
+                    >
+                      Zoom
+                    </button>
+                    {(me.permissions || []).includes(reqMeta.isMudryia ? "mudryia_requests" : "requests") && (
+                      <button
+                        onClick={() => { setSelectedFeature(null); navigate((reqMeta.isMudryia ? "/mudryia-requests" : "/requests") + "?q=" + encodeURIComponent(reqMeta.number)); }}
+                        className="flex-1 px-2 py-1.5 rounded text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                      >
+                        Request details
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </Popup>
           );
