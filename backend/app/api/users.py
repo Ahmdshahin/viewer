@@ -51,7 +51,7 @@ def _out(user: User) -> dict:
 
 @router.get("", response_model=List[UserOut])
 def get_users(db: Session = Depends(deps.get_db), current_user: User = Depends(deps.get_current_active_admin)):
-    users = db.query(User).all()
+    users = db.query(User).order_by(User.id).all()
     return [_out(u) for u in users]
 
 @router.post("", response_model=UserOut)
