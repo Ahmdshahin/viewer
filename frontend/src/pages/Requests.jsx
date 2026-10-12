@@ -239,8 +239,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     try { localStorage.setItem("ledger_density_" + base, density); } catch (e) {}
   }, [density, base]);
 
-  const surveyStatuses = uniq([...(staff.survStatuses || []), "تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم العمل عليه"].concat(rows.map((r) => r.survey_status)));
-  const requestStatuses = uniq([...(staff.reqStatuses || []), "مقبول", "مرفوض", "قيد الدراسة", "جديد", "لا يوجد"].concat(rows.map((r) => r.request_status)));
+  const surveyStatuses = uniq([...(staff.survStatuses || []), "تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم العمل عليه"]);
+  const requestStatuses = uniq([...(staff.reqStatuses || []), "مقبول", "مرفوض", "قيد الدراسة", "جديد", "لا يوجد"]);
   const unitTypes = uniq(["مبني", "أرض"].concat(rows.map((r) => r.unit_type)));
   const governorateNames = governorates.map((g) => g.name);
   const activeGov = governorates.find((g) => g.name === form.governorate);
