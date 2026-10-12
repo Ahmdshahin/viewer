@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import or_
 from app.api import deps
-from app.db.models import User
+from app.db.models import CadastralRequest, MudryiaRequest, User
 from app.core.security import hash_password
 from pydantic import BaseModel
 from typing import List, Optional
@@ -109,32 +109,25 @@ def delete_user(user_id: int, db: Session = Depends(deps.get_db), current_user: 
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # A user can only be deleted when they are not linked to any saved data
-    # (cadastral rows, migrated layers, or audit records).
-    uname = db_user.username
-    data_tables = ("lands", "eshghalat", "points", "mudryia", "regoin")
+    # A user can only be deleted when they are not related to any request
+    # in either ledger (as assignee or importer). Pure ORM queries — the old
+    # raw-SQL checks against geometry tables could abort the transaction and
+    # turned every delete into a 500.
     linked = []
-    for t in data_tables:
-        try:
-            n = db.execute(text(f'SELECT COUNT(*) FROM "{t}" WHERE "created_by" = :u'), {"u": uname}).scalar()
-        except Exception:
-            n = 0
+    for model, lname in ((CadastralRequest, "company requests"),
+                         (MudryiaRequest, "mudryia requests")):
+        n = db.query(model).filter(or_(
+            model.assigned_surveyor_id == user_id,
+            model.assigned_office_id == user_id,
+            model.imported_by_id == user_id,
+        )).count()
         if n:
-            linked.append(f"{t} ({n} rows)")
-    try:
-        audit_n = db.execute(
-            text('SELECT COUNT(*) FROM audit_trail WHERE "user_id" = :uid OR "username" = :u'),
-            {"uid": user_id, "u": uname},
-        ).scalar()
-    except Exception:
-        audit_n = 0
-    if audit_n:
-        linked.append(f"audit_trail ({audit_n} records)")
+            linked.append(f"{lname} ({n} rows)")
 
     if linked:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot delete @{uname}: user is linked to data — {', '.join(linked)}.",
+            detail=f"Cannot delete @{db_user.username}: user is related to requests — {', '.join(linked)}.",
         )
 
     db.delete(db_user)

@@ -57,6 +57,7 @@ export default function UserManagement() {
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({ full_name: "", role: "viewer", is_active: true });
   const [pwUser, setPwUser] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
   const [pwPassword, setPwPassword] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [accessUser, setAccessUser] = useState(null);
@@ -88,7 +89,7 @@ export default function UserManagement() {
   // Escape closes any open modal.
   useEffect(() => {
     const h = (e) => {
-      if (e.key === "Escape") { setAccessUser(null); closePw(); }
+      if (e.key === "Escape") { setAccessUser(null); closePw(); setShowCreate(false); }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -102,6 +103,7 @@ export default function UserManagement() {
       await axios.post("/api/v1/users", newUser, authH());
       setSuccess("User created successfully");
       setNewUser({ username: "", password: "", full_name: "", role: "viewer" });
+      setShowCreate(false);
       fetchUsers();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to create user");
@@ -209,7 +211,7 @@ export default function UserManagement() {
 
   const requestDelete = (user) => askConfirm({
     title: "Delete user?",
-    message: `Permanently delete @${user.username}?\nThis only works if the user is not linked to any saved data (rows they created or audit records).`,
+    message: `Permanently delete @${user.username}?\nThis only works if the user is not related to any requests (as assignee or importer).`,
     confirmLabel: "Delete",
     danger: true,
     onConfirm: () => deleteUser(user),
@@ -269,7 +271,7 @@ export default function UserManagement() {
     <div className="h-[calc(100vh-4.5rem)] flex flex-col gap-4 p-4 md:p-6 w-full overflow-hidden">
       <div className="flex-none flex justify-between items-center flex-wrap gap-2">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Team Management</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Team Management</h1>
           <p className="text-gray-500 mt-1">
             Manage GeoPortal access for your team.
             <span className="ml-2 text-xs font-medium text-gray-500">
@@ -277,6 +279,12 @@ export default function UserManagement() {
             </span>
           </p>
         </div>
+        <button
+          onClick={() => { setNewUser({ username: "", password: "", full_name: "", role: "viewer" }); setShowCreate(true); setError(""); setSuccess(""); }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
+        >
+          <UserPlus className="w-4 h-4" /> Add New User
+        </button>
       </div>
 
       {(error || success) && (
@@ -288,67 +296,12 @@ export default function UserManagement() {
         </div>
       )}
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6 overflow-y-auto lg:overflow-visible">
-
-        {/* Create User Form */}
-        <div className="lg:col-span-1 min-h-0">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 lg:max-h-full lg:overflow-auto">
-            <h2 className="text-lg font-semibold flex items-center mb-1 text-gray-800">
-              <UserPlus className="w-5 h-5 mr-2 text-blue-600" />
-              Add New User
-            </h2>
-            <p className="text-xs text-gray-400 mb-4">They can sign in right after creation.</p>
-
-            <form onSubmit={handleCreateUser} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input
-                  type="text" required
-                  placeholder="e.g. sara_n"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                <input
-                  type="text" required
-                  placeholder="e.g. Sara Nasser"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input
-                  type="password" required minLength={6}
-                  placeholder="Minimum 6 characters"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <select
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                  value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}
-                >
-                  <option value="viewer">{ROLE_LABELS.viewer}</option>
-                  <option value="editor">{ROLE_LABELS.editor}</option>
-                  <option value="admin">{ROLE_LABELS.admin}</option>
-                </select>
-              </div>
-              <button type="submit" className="w-full bg-blue-600 text-white rounded-md py-2 text-sm font-medium hover:bg-blue-700 transition">
-                Create Account
-              </button>
-            </form>
-          </div>
-        </div>
+      <div className="flex-1 min-h-0 flex flex-col">
 
         {/* Users List */}
-        <div className="lg:col-span-3 min-h-0 flex flex-col">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-0 lg:h-full overflow-hidden">
-            <div className="flex-none flex items-center gap-3 px-6 py-3 border-b border-gray-200 flex-wrap">
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div className="flex-none flex items-center gap-3 px-4 py-2 border-b border-gray-200 flex-wrap">
               <p className="text-sm font-medium text-gray-600 mr-auto">{filteredUsers.length} of {users.length} user(s)</p>
               <div className="relative flex-1 min-w-[180px] sm:flex-none">
                 <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -386,11 +339,11 @@ export default function UserManagement() {
               <table className="min-w-[960px] w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Access</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Access</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -398,9 +351,9 @@ export default function UserManagement() {
                     const perms = user.permissions || [];
                     return (
                       <tr key={user.id} className="hover:bg-gray-50 transition">
-                        <td className="px-6 py-3 whitespace-nowrap">
+                        <td className="px-4 py-2 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-9 w-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
+                            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
                               {initials(user.full_name, user.username)}
                             </div>
                             <div className="ml-3">
@@ -418,7 +371,7 @@ export default function UserManagement() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap">
+                        <td className="px-4 py-2 whitespace-nowrap">
                           {editingId === user.id ? (
                             <select
                               className="border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
@@ -435,7 +388,7 @@ export default function UserManagement() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap">
+                        <td className="px-4 py-2 whitespace-nowrap">
                           {editingId === user.id ? (
                             <label className="inline-flex items-center text-xs text-gray-600 cursor-pointer">
                               <input
@@ -452,7 +405,7 @@ export default function UserManagement() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-3">
+                        <td className="px-4 py-2">
                           <div className="flex items-start gap-2">
                             {accessChips(user)}
                             <button
@@ -464,7 +417,7 @@ export default function UserManagement() {
                             </button>
                           </div>
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap">
+                        <td className="px-4 py-2 whitespace-nowrap">
                           {editingId === user.id ? (
                             <div className="flex gap-1 justify-end">
                               <IconBtn title="Save changes" onClick={saveEdit} className="bg-green-600 text-white hover:bg-green-700">
@@ -520,7 +473,7 @@ export default function UserManagement() {
               {filteredUsers.map((user) => (
                 <div key={user.id} className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <div className="h-9 w-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shrink-0">
                       {initials(user.full_name, user.username)}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -620,6 +573,61 @@ export default function UserManagement() {
         </div>
 
       </div>
+
+      {/* Create user */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-blue-600" /> Add New User
+              </h3>
+              <button onClick={() => setShowCreate(false)} title="Close" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateUser} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input type="text" required placeholder="e.g. sara_n"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={newUser.username} onChange={e => setNewUser({ ...newUser, username: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input type="text" required placeholder="e.g. Sara Nasser"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input type="password" required minLength={6} placeholder="Minimum 6 characters"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <select
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>
+                  <option value="viewer">{ROLE_LABELS.viewer}</option>
+                  <option value="editor">{ROLE_LABELS.editor}</option>
+                  <option value="admin">{ROLE_LABELS.admin}</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setShowCreate(false)}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition">
+                  Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition">
+                  Create Account
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Access editor */}
       {accessUser && (
