@@ -1166,6 +1166,7 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
         "survey_status": model.survey_status,
         "entry_date": model.entry_date,
         "survey_date": model.survey_date,
+        "alt_survey_date": model.alt_survey_date,
     }
     if sort in sort_cols:
         col = sort_cols[sort]

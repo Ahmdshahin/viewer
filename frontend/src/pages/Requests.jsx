@@ -18,6 +18,7 @@ const REQ_STATUSES = ["جديد", "قيد المعاينة", "بالمراجعة
 
 const ALL_COLS = [
   { key: "req_number", label: "رقم الطلب", sortKey: "req_number" },
+  { key: "reqra_number", label: "رقم التقنين" },
   { key: "applicant", label: "اسم مقدم الطلب", sortKey: "applicant" },
   { key: "phone", label: "الهاتف" },
   { key: "governorate", label: "المحافظة" },
@@ -25,17 +26,17 @@ const ALL_COLS = [
   { key: "village", label: "القرية" },
   { key: "area", label: "المساحة/الوحدة", sortKey: "area_value", align: "right" },
   { key: "surveyor", label: "المساح" },
-  { key: "office", label: "المكتب الفني" },
+  { key: "alt_survey_date", label: "تاريخ الرفع الميدانى", sortKey: "alt_survey_date" },
   { key: "survey_status", label: "حالة المعاينة", sortKey: "survey_status" },
+  { key: "office", label: "المكتب الفني" },
   { key: "request_status", label: "حالة الطلب", sortKey: "request_status" },
-  { key: "reqra_number", label: "رقم التقنين" },
   { key: "entry_date", label: "تاريخ الإدخال", sortKey: "entry_date" },
-  { key: "survey_date", label: "تاريخ المعاينة", sortKey: "survey_date" },
+  { key: "directorate_date", label: "تاريخ الإرسال للمديرية", mudryiaOnly: true },
   { key: "company", label: "الشركة" },
   { key: "geom", label: "الخريطة" },
   { key: "actions", label: "إجراءات", always: true },
 ];
-const DEFAULT_COLS = ["req_number", "applicant", "center", "area", "survey_status", "request_status", "reqra_number", "geom", "actions"];
+const DEFAULT_COLS = ["req_number", "applicant", "center", "area", "survey_status", "request_status", "reqra_number", "directorate_date", "geom", "actions"];
 
 const FIELD_AR = {
   req_number: "رقم الطلب", applicant: "مقدم الطلب", phone: "الهاتف", address: "العنوان",
@@ -188,6 +189,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   });
   const [density, setDensity] = useState(() => { try { return localStorage.getItem("ledger_density_" + base) || "comfortable"; } catch (e) { return "comfortable"; } });
   const abortRef = useRef(null);
+  const officeAutoRef = useRef(null);
 
   const setF = useCallback((k,v)=>{
     setForm(f=>({...f,[k]:v}));
@@ -252,7 +254,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const allOfficeNames = uniq((staff.offices || []).filter(Boolean));
 
   const selIds = useMemo(() => Object.keys(sel).filter((k) => sel[k]).map(Number), [sel]);
-  const visibleCols = useMemo(() => ALL_COLS.filter((c) => c.always || cols.includes(c.key)), [cols]);
+  const visibleCols = useMemo(() => ALL_COLS.filter((c) => (c.always || cols.includes(c.key)) && (!c.mudryiaOnly || isMudryia)), [cols, isMudryia]);
   const cellPad = density === "compact" ? "px-3 py-1" : "px-4 py-2";
 
   const authH = () => ({ headers: { Authorization: "Bearer " + localStorage.getItem("token") } });
@@ -351,6 +353,20 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     };
     loadStaff();
   }, [base, isMudryia]);
+
+  // Auto-select the logged-in user as office when the field is empty and
+  // their username/full name matches an office entry. Once per request;
+  // never overwrites a stored value and stays editable afterwards.
+  useEffect(() => {
+    if (!detail || !me || !(staff.offices || []).length) return;
+    if (officeAutoRef.current === detail.id) return;
+    officeAutoRef.current = detail.id;
+    const names = staff.offices.filter(Boolean);
+    const uname = (me.username || "").trim();
+    const fname = (me.full_name || "").trim();
+    const match = names.find((n) => n === uname || n === fname);
+    if (match) setForm((f) => (f.office ? f : { ...f, office: match }));
+  }, [detail, me, staff.offices]);
 
   const openDetail = async (row) => {
     setOpen(row);
@@ -588,7 +604,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       case "request_status": return <StatusBadge status={r.request_status} />;
       case "reqra_number": return <span className="font-mono text-xs text-slate-600">{r.reqra_number || "—"}</span>;
       case "entry_date": return <span className="text-slate-600 whitespace-nowrap">{(r.entry_date || "").slice(0, 10) || "—"}</span>;
-      case "survey_date": return <span className="text-slate-600 whitespace-nowrap">{(r.survey_date || "").slice(0, 10) || "—"}</span>;
+      case "directorate_date": return <span className="text-slate-600 whitespace-nowrap">{(r.directorate_date || "").slice(0, 10) || "—"}</span>;
+      case "alt_survey_date": return <span className="text-slate-600 whitespace-nowrap">{(r.alt_survey_date || "").slice(0, 10) || "—"}</span>;
       case "company": return <span className="text-slate-600 max-w-[160px] truncate block">{r.company || "—"}</span>;
       case "geom": {
         const c = r.geometry_count ?? (r.has_geometry ? 1 : 0);
@@ -743,7 +760,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               <SlidersHorizontal className="w-3.5 h-3.5" /> الأعمدة والعروض المحفوظة
             </summary>
             <div className="mt-2 flex flex-wrap gap-2">
-              {ALL_COLS.filter((c) => !c.always).map((c) => (
+              {ALL_COLS.filter((c) => !c.always && (!c.mudryiaOnly || isMudryia)).map((c) => (
                 <label key={c.key} className={"inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1 border cursor-pointer " + (cols.includes(c.key) ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-slate-50 text-slate-500 border-slate-200")}>
                   <input type="checkbox" checked={cols.includes(c.key)} onChange={() => toggleCol(c.key)} className="accent-blue-600" />
                   {c.label}
@@ -899,7 +916,9 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectField label="حالة ملفات Raw" value={form.raw_files} onChange={(v)=>setF("raw_files",v)} options={withCurrent(uniq(staff.rawStatuses), form.raw_files)} clearable />
                       <TextField label="تاريخ الإرسال الجيوديسي" type="date" value={form.geodesy_date} onChange={(v)=>setF("geodesy_date",v)} err={formErrs.geodesy_date} />
-                      <TextField label="تاريخ الإرسال للمديرية" type="date" value={form.directorate_date} onChange={(v)=>setF("directorate_date",v)} />
+                      {isMudryia && (
+                        <TextField label="تاريخ الإرسال للمديرية" type="date" value={form.directorate_date} onChange={(v)=>setF("directorate_date",v)} />
+                      )}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectField label="حالة الطلب" value={form.request_status} onChange={(v)=>setF("request_status",v)} options={withCurrent(["مقبول","مرفوض","قيد الدراسة","جديد","لا يوجد"], form.request_status)} clearable />
