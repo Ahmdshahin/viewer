@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
-import { Plus, RefreshCw, Power, CheckCircle2, Pencil, Save, X, GitMerge } from "lucide-react";
+import { Plus, RefreshCw, Power, CheckCircle2, Pencil, Save, X, GitMerge, Trash2 } from "lucide-react";
 
 const H = () => (localStorage.getItem("token") ? { Authorization: "Bearer " + localStorage.getItem("token") } : {});
 
@@ -159,6 +159,19 @@ export default function LookupsAdmin() {
       load();
     } catch (e) {
       setError(e.response?.data?.detail || "Failed to toggle");
+    }
+  };
+
+  const deleteValue = async (it) => {
+    if (!window.confirm(`Delete "${it.name}" permanently? Only possible when no request uses it.`)) return;
+    setError("");
+    setNote("");
+    try {
+      await axios.delete(`/api/v1/lookups/values/${kind}/${it.id}`, { headers: H() });
+      setNote(`Deleted "${it.name}"`);
+      load();
+    } catch (e) {
+      setError(e.response?.data?.detail || "Failed to delete");
     }
   };
 
@@ -442,6 +455,12 @@ export default function LookupsAdmin() {
                         title={it.is_active ? "Disable" : "Enable"}>
                         {it.is_active ? <Power className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                       </button>
+                      {isValueKind && !it.is_active && (
+                        <button onClick={() => deleteValue(it)}
+                          className="text-gray-400 hover:text-red-600 ml-3" title="Delete permanently">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </>
                   )}
                 </td>

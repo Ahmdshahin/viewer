@@ -538,6 +538,37 @@ def enable_value(
     return {"id": item_id, "is_active": True}
 
 
+@router.delete("/values/{kind}/{item_id}")
+def delete_value(
+    kind: str,
+    item_id: int,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_admin),
+):
+    """Permanently remove a disabled value. Refuses while any ledger row
+    still uses the name — merge or rename first."""
+    if kind not in VALUE_KINDS:
+        raise HTTPException(status_code=404, detail="Unknown value list")
+    _ensure_lookup_values(db)
+    obj = db.query(LookupValue).filter(LookupValue.kind == kind, LookupValue.id == item_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Not found")
+    if obj.is_active:
+        raise HTTPException(status_code=400, detail="Disable the value first")
+    used = 0
+    for model in (CadastralRequest, MudryiaRequest):
+        for col in VALUE_COLUMNS[kind]:
+            used += db.query(model).filter(getattr(model, col) == obj.name).count()
+    if used:
+        raise HTTPException(
+            status_code=400,
+            detail=f"القيمة مستخدمة في {used} طلب — ادمجها أولاً",
+        )
+    db.delete(obj)
+    db.commit()
+    return {"deleted": item_id}
+
+
 @router.post("/values/{kind}/merge")
 def merge_values(
     kind: str,
