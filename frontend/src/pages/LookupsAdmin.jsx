@@ -18,7 +18,6 @@ const KINDS = [
 const STAFF_TYPES = [
   { key: "surveyor", label: "Surveyors" },
   { key: "office", label: "Offices" },
-  { key: "raw_files", label: "Raw file statuses" },
 ];
 
 export default function LookupsAdmin() {
