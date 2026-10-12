@@ -14,7 +14,7 @@ import TrackingBoard from "./pages/TrackingBoard";
 import LookupsAdmin from "./pages/LookupsAdmin";
 import Reports from "./pages/Reports";
 import axios from "axios";
-import { LayoutDashboard, Users, LogOut, User as UserIcon, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned } from "lucide-react";
 
 function NotificationsBell() {
   const [open, setOpen] = useState(false);
@@ -109,10 +109,53 @@ function NotificationsBell() {
   );
 }
 
-function TopBar({ setToken, role, pages }) {
+const MENU_GROUPS = [
+  {
+    title: "Requests",
+    items: [
+      { key: "requests", to: "/requests", label: "Company Requests", Icon: ClipboardList },
+      { key: "mudryia_requests", to: "/mudryia-requests", label: "Mudryia Requests", Icon: MapPinned },
+      { key: "tracking", to: "/tracking", label: "Tracking board", Icon: KanbanSquare },
+    ],
+  },
+  {
+    title: "Processing",
+    items: [
+      { key: "processor", to: "/processor", label: "Data Processor", Icon: Database },
+      { key: "point", to: "/point", label: "Point Processor", Icon: MapPin },
+      { key: "import", to: "/import", label: "Data Import", Icon: UploadCloud },
+    ],
+  },
+  {
+    title: "Insights",
+    items: [
+      { key: "dashboard", to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+      { key: "reports", to: "/reports", label: "Reports", Icon: BarChart3 },
+    ],
+  },
+  {
+    title: "Administration",
+    items: [
+      { key: "users", to: "/users", label: "Users", Icon: Users },
+      { key: "database", to: "/db-settings", label: "Database", Icon: Server },
+      { key: "lookups", to: "/lookups", label: "Lookup tables", Icon: ListTree },
+    ],
+  },
+];
+
+const menuInitials = (fullName, username) => {
+  const src = (fullName || "").trim() || (username || "").trim();
+  if (!src) return "?";
+  const parts = src.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+function TopBar({ setToken, role, pages, me }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
   const location = useLocation();
+  const initials = menuInitials(me && me.full_name, me && me.username);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -140,92 +183,58 @@ function TopBar({ setToken, role, pages }) {
       <div className="flex items-center">
         <NotificationsBell />
         <div className="relative" ref={dropdownRef}>
-        <button 
+        <button
           onClick={() => setShowDropdown(!showDropdown)}
-          className="flex items-center justify-center w-9 h-9 rounded-full bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 transition"
+          title={(me && (me.full_name || me.username)) || "Account"}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 transition"
         >
-          <UserIcon className="w-4 h-4" />
+          {initials}
         </button>
         
         {showDropdown && (
-          <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 border border-gray-200 z-50">
-                        <div className="px-4 py-2 border-b border-gray-100">
-              <p className="text-sm font-medium text-gray-900 capitalize">{role} Account</p>
+          <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl py-1 border border-gray-200 z-50 max-h-[calc(100vh-5rem)] overflow-y-auto">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                {initials}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-gray-900 truncate">{(me && me.full_name) || (me && me.username) || "Account"}</p>
+                <p className="text-xs text-gray-500 truncate">{me && me.username ? "@" + me.username : ""}</p>
+              </div>
+              <span className={"shrink-0 px-2 py-0.5 inline-flex text-[11px] leading-4 font-semibold rounded-full capitalize " + (role === "admin" ? "bg-purple-100 text-purple-800" : role === "editor" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800")}>
+                {role}
+              </span>
             </div>
-            {pages.includes('processor') && (
-              <Link to="/processor" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <Database className="w-4 h-4 mr-2" />
-                Data Processor
-              </Link>
-            )}
-            {pages.includes('point') && (
-              <Link to="/point" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <MapPin className="w-4 h-4 mr-2" />
-                Point Processor
-              </Link>
-            )}
-            {pages.includes('dashboard') && (
-              <Link to="/dashboard" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <LayoutDashboard className="w-4 h-4 mr-2" />
-                Dashboard
-              </Link>
-            )}
-            {pages.includes('users') && (
-              <Link to="/users" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <Users className="w-4 h-4 mr-2" />
-                Users
-              </Link>
-            )}
-            {pages.includes('database') && (
-              <Link to="/db-settings" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <Server className="w-4 h-4 mr-2" />
-                Database
-              </Link>
-            )}
-            {pages.includes('import') && (
-              <Link to="/import" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <UploadCloud className="w-4 h-4 mr-2" />
-                Data Import
-              </Link>
-            )}
-            {pages.includes('requests') && (
-              <Link to="/requests" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <ClipboardList className="w-4 h-4 mr-2" />
-                Company Requests
-              </Link>
-            )}
-            {pages.includes('mudryia_requests') && (
-              <Link to="/mudryia-requests" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <MapPinned className="w-4 h-4 mr-2" />
-                Mudryia Requests
-              </Link>
-            )}
-            {pages.includes('tracking') && (
-              <Link to="/tracking" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <KanbanSquare className="w-4 h-4 mr-2" />
-                Tracking board
-              </Link>
-            )}
-            {pages.includes('lookups') && (
-              <Link to="/lookups" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <ListTree className="w-4 h-4 mr-2" />
-                Lookup tables
-              </Link>
-            )}
-            {pages.includes('reports') && (
-              <Link to="/reports" onClick={() => setShowDropdown(false)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center transition-colors">
-                <BarChart3 className="w-4 h-4 mr-2" />
-                Reports
-              </Link>
-            )}
+            {MENU_GROUPS.map((group) => {
+              const visible = group.items.filter((i) => pages.includes(i.key));
+              if (!visible.length) return null;
+              return (
+                <div key={group.title} className="py-1">
+                  <p className="px-4 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                    {group.title}
+                  </p>
+                  {visible.map((i) => (
+                    <Link
+                      key={i.key}
+                      to={i.to}
+                      onClick={() => setShowDropdown(false)}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-800 flex items-center transition-colors"
+                    >
+                      <i.Icon className="w-4 h-4 mr-2.5 text-gray-400" />
+                      {i.label}
+                    </Link>
+                  ))}
+                </div>
+              );
+            })}
             {pages.length > 0 && (
               <div className="border-t border-gray-100 my-1"></div>
             )}
             <button
               onClick={() => { localStorage.removeItem("token"); setToken(null); }}
-              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center transition-colors"
+              className="w-full text-left px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 flex items-center transition-colors"
             >
-              <LogOut className="w-4 h-4 mr-2" />
+              <LogOut className="w-4 h-4 mr-2.5" />
               Logout
             </button>
           </div>
@@ -269,7 +278,7 @@ function App() {
   return (
     <BrowserRouter>
       <div className="flex flex-col h-screen w-screen overflow-hidden bg-gray-50">
-        <TopBar setToken={setToken} role={me.role} pages={me.permissions || []} />
+        <TopBar setToken={setToken} role={me.role} pages={me.permissions || []} me={me} />
         
         <main className="flex-1 flex flex-col relative overflow-hidden">
           <Routes>
