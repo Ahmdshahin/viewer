@@ -325,7 +325,6 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     const loadStaff = async () => {
       try {
         const token = localStorage.getItem("token");
-        const ledger = isMudryia ? "mudryia" : "company";
         const h = { headers: { Authorization: "Bearer " + token } };
         const listOf = (d) => (Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : []);
         const [pSurveyor, pOffice, pUnits, pGovs, pCtrs, pVills, pReqSt, pSurvSt, pRawSt] = await Promise.all([
