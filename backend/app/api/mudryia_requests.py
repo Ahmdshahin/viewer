@@ -24,7 +24,6 @@ from app.api.requests import (
     BulkAssignIn,
     BulkTransitionIn,
     RequestCreate,
-    _allowed_request_statuses,
     RequestUpdate,
     TransitionIn,
     _apply_list_filters,
@@ -554,7 +553,7 @@ def transition_mudryia_request(
     if not r:
         raise HTTPException(status_code=404, detail="Request not found")
     target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
+    if target not in REQUEST_STATUSES:
         raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
     if r.request_status == target:
         raise HTTPException(status_code=400, detail="الحالة نفسها بلا تغيير")
@@ -635,7 +634,7 @@ def bulk_transition_mudryia_requests(
     if not ids:
         raise HTTPException(status_code=400, detail="No request ids provided")
     target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
+    if target not in REQUEST_STATUSES:
         raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
     comment = (body.comment or "").strip() or None
     rows = db.query(MudryiaRequest).filter(MudryiaRequest.id.in_(ids)).all()

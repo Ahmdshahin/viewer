@@ -114,24 +114,6 @@ class Governorate(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
-class LookupValue(Base):
-    """Admin-managed value lists (request/survey/raw statuses).
-
-    Unlike the FK lookups above, ledger rows store these as plain text, so
-    renaming/merging here re-points matching row text in both ledgers.
-    """
-    __tablename__ = "lookup_values"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    kind = Column(String(40), nullable=False, index=True)
-    name = Column(String(120), nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False)
-
-
-Index("ux_lookup_value_kind_name", LookupValue.kind, LookupValue.name, unique=True)
-
-
 class Center(Base):
     """Centers lookup, optionally carrying the numeric code embedded in Req_Number."""
     __tablename__ = "centers"
