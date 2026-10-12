@@ -14,6 +14,7 @@ const FIELD_LABEL_SM = "text-[11px] font-medium text-slate-600 mb-0.5 block";
 const BASEMAP_WITH_GEOM = "✔ shapefile";
 const BASEMAP_WITHOUT_GEOM = "Non_shapefile";
 
+const REQ_STATUSES = ["جديد", "قيد المعاينة", "بالمراجعة الفنية", "تم الارسال", "لم يتم الارسال", "تم الرفع ع المنظومة", "لم يتم الرفع ع المنظومة", "جاري العمل عليه", "لم يتم العمل عليه", "مكتمل ولم يرسل", "مقبول", "مرفوض"];
 
 const ALL_COLS = [
   { key: "req_number", label: "رقم الطلب", sortKey: "req_number" },
@@ -239,8 +240,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     try { localStorage.setItem("ledger_density_" + base, density); } catch (e) {}
   }, [density, base]);
 
-  const surveyStatuses = uniq([...(staff.survStatuses || []), "تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم العمل عليه"].concat(rows.map((r) => r.survey_status)));
-  const requestStatuses = uniq([...(staff.reqStatuses || []), "مقبول", "مرفوض", "قيد الدراسة", "جديد", "لا يوجد"].concat(rows.map((r) => r.request_status)));
+  const surveyStatuses = uniq(["تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم العمل عليه"].concat(rows.map((r) => r.survey_status)));
+  const requestStatuses = uniq(["مقبول", "مرفوض", "قيد الدراسة", "جديد", "لا يوجد"].concat(rows.map((r) => r.request_status)));
   const unitTypes = uniq(["مبني", "أرض"].concat(rows.map((r) => r.unit_type)));
   const governorateNames = governorates.map((g) => g.name);
   const activeGov = governorates.find((g) => g.name === form.governorate);
@@ -328,24 +329,19 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         const ledger = isMudryia ? "mudryia" : "company";
         const h = { headers: { Authorization: "Bearer " + token } };
         const listOf = (d) => (Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : []);
-        const [pSurveyor, pOffice, pUnits, pGovs, pCtrs, pVills, pReqSt, pSurvSt, pRawSt] = await Promise.all([
+        const [pSurveyor, pOffice, pRaw, pUnits, pGovs, pCtrs, pVills] = await Promise.all([
           api.get("/api/v1/lookups/people?type=surveyor&ledger=" + ledger, h),
           api.get("/api/v1/lookups/people?type=office&ledger=" + ledger, h),
+          api.get("/api/v1/lookups/people?type=raw_files&ledger=" + ledger, h),
           api.get("/api/v1/lookups/area_units", h),
           api.get("/api/v1/lookups/governorates", h),
           api.get("/api/v1/lookups/centers", h),
           api.get("/api/v1/lookups/villages", h),
-          api.get("/api/v1/lookups/values/request_status", h).catch(() => ({ data: [] })),
-          api.get("/api/v1/lookups/values/survey_status", h).catch(() => ({ data: [] })),
-          api.get("/api/v1/lookups/values/raw_status", h).catch(() => ({ data: [] })),
         ]);
-        const vnames = (d) => listOf(d).map((x) => (x && typeof x === "object" ? x.name : x)).filter(Boolean);
         setStaff({
           staff: listOf(pSurveyor),
           offices: listOf(pOffice),
-          rawStatuses: vnames(pRawSt),
-          reqStatuses: vnames(pReqSt),
-          survStatuses: vnames(pSurvSt),
+          rawStatuses: listOf(pRaw),
         });
         setFormUnits(listOf(pUnits));
         setGovernorates(listOf(pGovs));
@@ -724,7 +720,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               </button>
               <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">حالة...</option>
-                {requestStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                {REQ_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               <input value={bulkComment} onChange={(e) => setBulkComment(e.target.value)} placeholder="تعليق..." className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]" />
               <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
@@ -925,7 +921,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                       )}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <SelectField label="حالة الطلب" value={form.request_status} onChange={(v)=>setF("request_status",v)} options={withCurrent(requestStatuses, form.request_status)} clearable />
+                      <SelectField label="حالة الطلب" value={form.request_status} onChange={(v)=>setF("request_status",v)} options={withCurrent(["مقبول","مرفوض","قيد الدراسة","جديد","لا يوجد"], form.request_status)} clearable />
                       <TextField label="تاريخ الإدخال" type="date" value={form.entry_date} onChange={(v)=>setF("entry_date",v)} err={formErrs.entry_date} />
                     </div>
                     <div>

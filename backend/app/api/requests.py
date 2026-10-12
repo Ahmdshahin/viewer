@@ -20,7 +20,7 @@ from typing import List, Optional
 
 from app.api import deps
 from app.db.models import (
-    AreaUnit, CadastralRequest, Center, Governorate, LookupValue, Notification,
+    AreaUnit, CadastralRequest, Center, Governorate, Notification,
     CANONICAL_SURVEY_STATUSES, REQUEST_STATUSES, SURVEY_STATUS_ALIASES,
     UNIT_TYPE_ALIASES, User, Village, AuditTrail,
 )
@@ -1016,20 +1016,6 @@ class BulkTransitionIn(BaseModel):
 ACCEPTED_SURVEY_STATUSES = ("تم المعاينة", "تمت المعاينة", "تم المعاينه")
 
 
-def _allowed_request_statuses(db: Session) -> set:
-    """Statuses an admin currently offers: the managed request_status list,
-    falling back to the canonical tuple when the list is empty/unavailable."""
-    try:
-        names = [n for (n,) in db.query(LookupValue.name).filter(
-            LookupValue.kind == "request_status",
-            LookupValue.is_active == True).all()]  # noqa: E712
-        if names:
-            return set(names)
-    except Exception:
-        pass
-    return set(REQUEST_STATUSES)
-
-
 def _require_staff(r):
     """Business rule: surveyor and office must both be chosen."""
     if not (r.surveyor_name or "").strip():
@@ -1733,7 +1719,7 @@ def transition_request(
     if not r:
         raise HTTPException(status_code=404, detail="Request not found")
     target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
+    if target not in REQUEST_STATUSES:
         raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
     old = r.request_status
     if old == target:
@@ -1813,7 +1799,7 @@ def bulk_transition_requests(
     if not ids:
         raise HTTPException(status_code=400, detail="No request ids provided")
     target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
+    if target not in REQUEST_STATUSES:
         raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
     comment = (body.comment or "").strip() or None
     rows = db.query(CadastralRequest).filter(CadastralRequest.id.in_(ids)).all()
