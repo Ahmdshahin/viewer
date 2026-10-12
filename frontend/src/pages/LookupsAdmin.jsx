@@ -224,6 +224,36 @@ export default function LookupsAdmin() {
         </div>
       )}
 
+      {/* Add form */}
+      <div className="flex items-center gap-2 mb-4">
+        {!adding ? (
+          <button onClick={() => setAdding(true)}
+            className="inline-flex items-center px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700">
+            <Plus className="w-3.5 h-3.5 mr-1.5" /> Add {kindNoun}
+          </button>
+        ) : (
+          <div className="flex items-end gap-2 bg-white p-3 rounded shadow">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 block">Name</label>
+              <input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} autoFocus
+                className="px-2 py-1.5 text-sm rounded-md border border-gray-200" />
+            </div>
+            {!noCode && (
+              <div>
+                <label className="text-[10px] uppercase tracking-wider text-gray-400 block">Code</label>
+                <input value={addForm.code} onChange={(e) => setAddForm((f) => ({ ...f, code: e.target.value }))}
+                  className="px-2 py-1.5 text-sm rounded-md border border-gray-200 w-24" />
+              </div>
+            )}
+            <button onClick={add} className="px-3 py-2 rounded-md text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700">Save</button>
+            <button onClick={() => setAdding(false)} className="px-2 py-2 rounded-md text-xs font-semibold text-gray-500 hover:bg-gray-100"><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {note && <p className="mb-3 text-sm text-emerald-600">{note}</p>}
+
       {/* Merge bar */}
       {mergeIds.length > 0 && (
         <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
