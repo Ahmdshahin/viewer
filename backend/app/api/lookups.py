@@ -355,10 +355,14 @@ PEOPLE_COLUMNS = {
     "raw_files": ("raw_files",),
 }
 
+# Seed = the exact values the request form offers today (per the approved
+# screenshots), plus any extra spellings already stored in ledger rows.
 VALUE_SEED = {
-    "request_status": list(REQUEST_STATUSES),
-    "survey_status": list(SURVEY_STATUSES),
-    "raw_status": [],
+    "request_status": ["مقبول", "مرفوض", "قيد الدراسة", "جديد", "لا يوجد", "مكتمل ولم يرسل"],
+    "survey_status": ["تم المعاينه", "تم الرفع وجارى المراجعه", "لم يتم العمل عليه",
+                      "تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم المعاينه"],
+    "raw_status": ["تم الارسال جيوديسيا", "لم يتم الارسال جيوديسيا", "لم يتم العمل عليه",
+                   "مرفوض جيوديسيا", "مقبول جيوديسيا", "مكتمل جيوديسيا"],
 }
 
 
