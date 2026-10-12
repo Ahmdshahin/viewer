@@ -12,12 +12,8 @@ const KINDS = [
   { key: "request_status", label: "Request statuses", values: true },
   { key: "survey_status", label: "Survey statuses", values: true },
   { key: "raw_status", label: "Raw statuses", values: true },
-  { key: "staff", label: "Staff names", staff: true },
-];
-
-const STAFF_TYPES = [
-  { key: "surveyor", label: "Surveyors" },
-  { key: "office", label: "Offices" },
+  { key: "surveyor", label: "Surveyors", values: true },
+  { key: "office", label: "Offices", values: true },
 ];
 
 export default function LookupsAdmin() {
@@ -37,29 +33,15 @@ export default function LookupsAdmin() {
   const [mergeSel, setMergeSel] = useState({});
   const [mergeTarget, setMergeTarget] = useState("");
   const [mergeBusy, setMergeBusy] = useState(false);
-  // Staff names cleanup
-  const [staffType, setStaffType] = useState("surveyor");
-  const [staffNames, setStaffNames] = useState([]);
-  const [staffSel, setStaffSel] = useState({});
-  const [staffTarget, setStaffTarget] = useState("");
-  const [staffBusy, setStaffBusy] = useState(false);
-  const [renaming, setRenaming] = useState(null);
-  const [renameVal, setRenameVal] = useState("");
 
-  const isValueKind = ["request_status", "survey_status", "raw_status"].includes(kind);
-  const isStaff = kind === "staff";
-  const noCode = isValueKind || isStaff || kind === "villages";
+  const isValueKind = ["request_status", "survey_status", "raw_status", "surveyor", "office"].includes(kind);
+  const noCode = isValueKind || kind === "villages";
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      if (isStaff) {
-        const res = await axios.get("/api/v1/lookups/people", {
-          headers: H(), params: { type: staffType, ledger: "all" },
-        });
-        setStaffNames(Array.isArray(res.data) ? res.data : []);
-      } else if (isValueKind) {
+      if (isValueKind) {
         const res = await axios.get(`/api/v1/lookups/values/${kind}`, {
           headers: H(), params: { include_inactive: true },
         });
@@ -76,7 +58,7 @@ export default function LookupsAdmin() {
     } finally {
       setLoading(false);
     }
-  }, [kind, govFilter, centerFilter, staffType, isStaff, isValueKind]);
+  }, [kind, govFilter, centerFilter, isValueKind]);
 
   const loadHelpers = useCallback(async () => {
     try {
@@ -100,9 +82,6 @@ export default function LookupsAdmin() {
     setEditingId(null);
     setMergeSel({});
     setMergeTarget("");
-    setStaffSel({});
-    setStaffTarget("");
-    setRenaming(null);
   };
 
   const add = async () => {
@@ -198,52 +177,15 @@ export default function LookupsAdmin() {
     }
   };
 
-  // ---- Staff names cleanup ----
-  const staffMergeIds = Object.keys(staffSel).filter((k) => staffSel[k]);
-
-  const doStaffMerge = async () => {
-    if (!staffMergeIds.length || !staffTarget || staffBusy) return;
-    if (!window.confirm(`Merge ${staffMergeIds.length} name(s) into "${staffTarget}" across both ledgers?`)) return;
-    setStaffBusy(true);
-    setError("");
-    setNote("");
-    try {
-      const res = await axios.post(`/api/v1/lookups/people/merge?type=${staffType}`,
-        { sources: staffMergeIds, target: staffTarget }, { headers: H() });
-      setNote(`Merged — ${res.data.moved} reference(s) re-pointed to "${staffTarget}"`);
-      setStaffSel({});
-      setStaffTarget("");
-      load();
-    } catch (e) {
-      setError(e.response?.data?.detail || "Failed to merge");
-    } finally {
-      setStaffBusy(false);
-    }
-  };
-
-  const saveRename = async (oldName) => {
-    const next = (renameVal || "").trim();
-    if (!next || next === oldName) { setRenaming(null); return; }
-    try {
-      const res = await axios.post(`/api/v1/lookups/people/rename?type=${staffType}`,
-        { old: oldName, new: next }, { headers: H() });
-      setNote(`Renamed — ${res.data.moved} reference(s) updated`);
-      setRenaming(null);
-      load();
-    } catch (e) {
-      setError(e.response?.data?.detail || "Failed to rename");
-    }
-  };
-
   const subTitle = kind === "centers" ? "Parent governorate" : kind === "villages" ? "Parent center" : null;
-  const kindNoun = isStaff ? "name" : (isValueKind ? "value" : kind.replace("_", " "));
+  const kindNoun = isValueKind ? "value" : kind.replace("_", " ");
 
   return (
     <div className="p-8 overflow-y-auto h-full">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Lookup tables</h1>
-          <p className="text-sm text-gray-500 mt-1">Divisions, units, request vocabularies and staff-name cleanup</p>
+          <p className="text-sm text-gray-500 mt-1">Divisions, units, request vocabularies and staff lists</p>
         </div>
         <button onClick={load} disabled={loading}
           className="inline-flex items-center px-3 py-2 rounded-md text-xs font-semibold bg-slate-900 text-white hover:bg-slate-700 disabled:opacity-50">
@@ -263,7 +205,7 @@ export default function LookupsAdmin() {
       </div>
 
       {/* Parent filters */}
-      {subTitle && !isValueKind && !isStaff && (
+      {subTitle && !isValueKind && (
         <div className="mb-4">
           <label className="text-xs uppercase tracking-wider text-gray-400 mr-2">{subTitle}</label>
           {kind === "centers" ? (
@@ -282,76 +224,8 @@ export default function LookupsAdmin() {
         </div>
       )}
 
-      {/* Staff type selector */}
-      {isStaff && (
-        <div className="mb-4 flex items-center gap-2">
-          <label className="text-xs uppercase tracking-wider text-gray-400">Names of</label>
-          <select value={staffType} onChange={(e) => { setStaffType(e.target.value); setStaffSel({}); setStaffTarget(""); setRenaming(null); }}
-            className="px-2 py-1.5 text-sm rounded-md border border-gray-200">
-            {STAFF_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-          </select>
-          <span className="text-xs text-gray-400">{staffNames.length} distinct name(s) in the ledgers</span>
-        </div>
-      )}
-
-      {isValueKind && (
-        <p className="mb-4 text-xs text-gray-500">
-          Renaming a value re-points every ledger row using it. Disabling hides it from forms without touching old rows.
-        </p>
-      )}
-
-      {/* Add form */}
-      {!isStaff && (
-        <div className="flex items-center gap-2 mb-4">
-          {!adding ? (
-            <button onClick={() => setAdding(true)}
-              className="inline-flex items-center px-3 py-2 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700">
-              <Plus className="w-3.5 h-3.5 mr-1.5" /> Add {kindNoun}
-            </button>
-          ) : (
-            <div className="flex items-end gap-2 bg-white p-3 rounded shadow">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-gray-400 block">Name</label>
-                <input value={addForm.name} onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))} autoFocus
-                  className="px-2 py-1.5 text-sm rounded-md border border-gray-200" />
-              </div>
-              {!noCode && (
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-gray-400 block">Code</label>
-                  <input value={addForm.code} onChange={(e) => setAddForm((f) => ({ ...f, code: e.target.value }))}
-                    className="px-2 py-1.5 text-sm rounded-md border border-gray-200 w-24" />
-                </div>
-              )}
-              <button onClick={add} className="px-3 py-2 rounded-md text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700">Save</button>
-              <button onClick={() => setAdding(false)} className="px-2 py-2 rounded-md text-xs font-semibold text-gray-500 hover:bg-gray-100"><X className="w-3.5 h-3.5" /></button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
-      {note && <p className="mb-3 text-sm text-emerald-600">{note}</p>}
-
-      {/* Staff merge bar */}
-      {isStaff && staffMergeIds.length > 0 && (
-        <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex-wrap">
-          <GitMerge className="w-4 h-4 text-amber-600" />
-          <span className="text-xs font-semibold text-amber-800">{staffMergeIds.length} selected to merge</span>
-          <select value={staffTarget} onChange={(e) => setStaffTarget(e.target.value)}
-            className="px-2 py-1.5 text-xs rounded-md border border-amber-300 bg-white min-w-[200px]">
-            <option value="">Merge into...</option>
-            {staffNames.filter((n) => !staffSel[n]).map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <button onClick={doStaffMerge} disabled={!staffTarget || staffBusy}
-            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40">
-            {staffBusy ? "Merging..." : "Merge"}
-          </button>
-          <button onClick={() => { setStaffSel({}); setStaffTarget(""); }} className="text-xs text-amber-700 hover:underline">Clear</button>
-        </div>
-      )}
-
       {/* Merge bar */}
-      {!isStaff && mergeIds.length > 0 && (
+      {mergeIds.length > 0 && (
         <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <GitMerge className="w-4 h-4 text-amber-600" />
           <span className="text-xs font-semibold text-amber-800">{mergeIds.length} selected to merge</span>
@@ -376,40 +250,12 @@ export default function LookupsAdmin() {
               <th className="px-4 py-2 w-8"></th>
               <th className="text-left px-4 py-2 font-semibold">Name</th>
               {!noCode && <th className="text-left px-4 py-2 font-semibold">Code</th>}
-              {!isStaff && <th className="text-left px-4 py-2 font-semibold">Status</th>}
+              <th className="text-left px-4 py-2 font-semibold">Status</th>
               <th className="text-right px-4 py-2 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {isStaff ? staffNames.map((n) => (
-              <tr key={n} className={"border-b border-gray-100" + (staffSel[n] ? " bg-amber-50" : "")}>
-                <td className="px-4 py-2">
-                  <input type="checkbox" checked={!!staffSel[n]} onChange={() => setStaffSel((s) => ({ ...s, [n]: !s[n] }))} className="accent-amber-600" title="Select for merge" />
-                </td>
-                <td className="px-4 py-2 text-slate-700">
-                  {renaming === n ? (
-                    <input value={renameVal} onChange={(e) => setRenameVal(e.target.value)} autoFocus
-                      className="px-2 py-1 text-sm rounded-md border border-gray-200 min-w-[220px]" />
-                  ) : n}
-                </td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {renaming === n ? (
-                    <>
-                      <button onClick={() => saveRename(n)} className="inline-flex items-center text-emerald-600 hover:text-emerald-700 mr-2" title="Save rename">
-                        <Save className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => setRenaming(null)} className="text-gray-400 hover:text-gray-600" title="Cancel">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={() => { setRenaming(n); setRenameVal(n); }} className="text-gray-500 hover:text-blue-600" title="Rename everywhere">
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            )) : items.map((it) => (
+            {items.map((it) => (
               <tr key={it.id} className={"border-b border-gray-100" + (mergeSel[it.id] ? " bg-amber-50" : "")}>
                 <td className="px-4 py-2">
                   <input type="checkbox" checked={!!mergeSel[it.id]} onChange={() => setMergeSel((s) => ({ ...s, [it.id]: !s[it.id] }))} className="accent-amber-600" title="Select for merge" />
@@ -465,7 +311,7 @@ export default function LookupsAdmin() {
                 </td>
               </tr>
             ))}
-            {!loading && (isStaff ? staffNames.length === 0 : items.length === 0) && (
+            {!loading && items.length === 0 && (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400 text-sm">Nothing here yet</td></tr>
             )}
           </tbody>

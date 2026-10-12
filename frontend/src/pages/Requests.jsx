@@ -329,8 +329,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         const h = { headers: { Authorization: "Bearer " + token } };
         const listOf = (d) => (Array.isArray(d?.data) ? d.data : Array.isArray(d) ? d : []);
         const [pSurveyor, pOffice, pUnits, pGovs, pCtrs, pVills, pReqSt, pSurvSt, pRawSt] = await Promise.all([
-          api.get("/api/v1/lookups/people?type=surveyor&ledger=" + ledger, h),
-          api.get("/api/v1/lookups/people?type=office&ledger=" + ledger, h),
+          api.get("/api/v1/lookups/values/surveyor", h).catch(() => ({ data: [] })),
+          api.get("/api/v1/lookups/values/office", h).catch(() => ({ data: [] })),
           api.get("/api/v1/lookups/area_units", h),
           api.get("/api/v1/lookups/governorates", h),
           api.get("/api/v1/lookups/centers", h),
@@ -341,8 +341,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         ]);
         const vnames = (d) => listOf(d).map((x) => (x && typeof x === "object" ? x.name : x)).filter(Boolean);
         setStaff({
-          staff: listOf(pSurveyor),
-          offices: listOf(pOffice),
+          staff: vnames(pSurveyor),
+          offices: vnames(pOffice),
           rawStatuses: vnames(pRawSt),
           reqStatuses: vnames(pReqSt),
           survStatuses: vnames(pSurvSt),

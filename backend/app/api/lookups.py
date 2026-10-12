@@ -339,13 +339,15 @@ def merge_lookups(
 # Ledger rows store these as plain text, so the admin can curate the exact
 # vocabulary the forms, filters and transitions offer.
 
-VALUE_KINDS = ("request_status", "survey_status", "raw_status")
+VALUE_KINDS = ("request_status", "survey_status", "raw_status", "surveyor", "office")
 
 # Which ledger columns carry each value kind (both ledgers, same column names).
 VALUE_COLUMNS = {
     "request_status": ("request_status",),
     "survey_status": ("survey_status",),
     "raw_status": ("raw_files",),
+    "surveyor": ("surveyor_name",),
+    "office": ("office_name",),
 }
 
 # Staff-name columns for the people cleanup endpoints below.
@@ -363,6 +365,8 @@ VALUE_SEED = {
                       "تم المعاينة", "تم الرفع وجاري المراجعة", "لم يتم المعاينه"],
     "raw_status": ["تم الارسال جيوديسيا", "لم يتم الارسال جيوديسيا", "لم يتم العمل عليه",
                    "مرفوض جيوديسيا", "مقبول جيوديسيا", "مكتمل جيوديسيا"],
+    "surveyor": [],
+    "office": [],
 }
 
 
