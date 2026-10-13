@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, Save, History, Filter, ChevronDown, ChevronUp, MapPin, RotateCcw,
-  Printer, BarChart3, X, ArrowUp, ArrowDown, Bookmark, Trash2,
+  Printer, BarChart3, X, Check, ArrowUp, ArrowDown, Bookmark, Trash2,
   Download, UserCheck, SlidersHorizontal, Map as MapIcon,
 } from "lucide-react";
 import axios from "axios";
@@ -80,7 +80,89 @@ function SelectField({ label, value, onChange, options = [], clearable = false, 
   );
 }
 
-function StaticField({ label, value, small = false }) {
+function DropField({ label, value, onChange, options = [], clearable = false, disabled = false }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  const opts = (options || []).map((opt, i) => (typeof opt === "object"
+    ? { value: String(opt.value ?? ""), label: opt.label ?? opt.value ?? "", key: "v" + String(opt.value ?? i) }
+    : { value: String(opt), label: String(opt), key: i + ":" + String(opt) }));
+  const current = opts.find((o) => o.value === String(value ?? ""));
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? opts.filter((o) => o.label.toLowerCase().includes(needle)) : opts;
+  useEffect(() => {
+    if (!open) return;
+    setQ("");
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open ]);
+  return (
+    <div>
+      <label className={FIELD_LABEL_SM}>{label}</label>
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen((o) => !o)}
+          className={(disabled ? "bg-slate-50 " : "bg-white ") + "w-full border border-slate-300 rounded-lg px-2 py-1 text-xs shadow-sm flex items-center justify-between gap-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors disabled:opacity-60"}
+        >
+          <span className={"truncate " + (current ? "text-slate-800" : "text-slate-400")}>
+            {current ? current.label : (clearable ? "--" : "اختر...")}
+          </span>
+          <ChevronDown className={"w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform " + (open ? "rotate-180" : "")} />
+        </button>
+        {open && !disabled && (
+          <div className="absolute z-30 mt-1 w-full bg-white border border-slate-300 rounded-lg shadow-lg overflow-hidden">
+            {opts.length > 10 && (
+              <div className="p-1.5 border-b border-slate-100">
+                <input
+                  autoFocus
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="بحث..."
+                  className="w-full px-2 py-1 text-xs border border-slate-200 rounded-md focus:outline-none focus:border-blue-400"
+                />
+              </div>
+            )}
+            <ul className="max-h-56 overflow-auto py-1">
+              {clearable && (
+                <li>
+                  <button type="button" onClick={() => { onChange(null); setOpen(false); }}
+                    className="w-full text-right px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100">
+                    --
+                  </button>
+                </li>
+              )}
+              {shown.map((o) => {
+                const sel = !!(current && o.value === current.value);
+                return (
+                  <li key={o.key}>
+                    <button type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                      className={"w-full text-right px-3 py-1.5 text-xs flex items-center justify-between gap-2 " + (sel ? "bg-blue-50 text-blue-800 font-semibold" : "text-slate-700 hover:bg-slate-100")}>
+                      <span className="truncate">{o.label}</span>
+                      {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                  </li>
+                );
+              })}
+              {!shown.length && (
+                <li className="px-3 py-2 text-xs text-slate-400 text-center">لا نتائج</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StaticField({ label, value }) {
   return (
     <div>
       <label className={small ? FIELD_LABEL_SM : FIELD_LABEL}>{label}</label>
@@ -747,14 +829,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <UserCheck className="w-4 h-4" /> طلباتي
               </button>
             </div>
-            <SelectField small label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||""})); setPage(1);}} options={requestStatuses} clearable />
-            <SelectField small label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||""})); setPage(1);}} options={surveyStatuses} clearable />
-            <SelectField small label="وجود خريطة" value={filters.has_geometry} onChange={(v)=>{setFilters(f=>({...f,has_geometry:v||""})); setPage(1);}} options={[{value:"true",label:"يوجد"}, {value:"false",label:"لا يوجد"}]} clearable />
-            <SelectField small label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters(f=>({...f,governorate:v||"",center:"",village:""})); setPage(1);}} options={governorateNames} clearable />
-            <SelectField small label="المركز" value={filters.center} onChange={(v)=>{setFilters(f=>({...f,center:v||"",village:""})); setPage(1);}} options={fCenterNames} clearable />
-            <SelectField small label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||""})); setPage(1);}} options={fVillageNames} clearable />
-            <SelectField small label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||""})); setPage(1);}} options={allSurveyorNames} clearable />
-            <SelectField small label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||""})); setPage(1);}} options={allOfficeNames} clearable />
+            <DropField label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||""})); setPage(1);}} options={requestStatuses} clearable />
+            <DropField label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||""})); setPage(1);}} options={surveyStatuses} clearable />
+            <DropField label="وجود خريطة" value={filters.has_geometry} onChange={(v)=>{setFilters(f=>({...f,has_geometry:v||""})); setPage(1);}} options={[{value:"true",label:"يوجد"}, {value:"false",label:"لا يوجد"}]} clearable />
+            <DropField label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters(f=>({...f,governorate:v||"",center:"",village:""})); setPage(1);}} options={governorateNames} clearable />
+            <DropField label="المركز" value={filters.center} onChange={(v)=>{setFilters(f=>({...f,center:v||"",village:""})); setPage(1);}} options={fCenterNames} clearable />
+            <DropField label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||""})); setPage(1);}} options={fVillageNames} clearable />
+            <DropField label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||""})); setPage(1);}} options={allSurveyorNames} clearable />
+            <DropField label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||""})); setPage(1);}} options={allOfficeNames} clearable />
             <TextField small label="إدخال من" type="date" value={filters.entry_from} onChange={(v)=>{setFilters(f=>({...f,entry_from:v})); setPage(1);}} />
             <TextField small label="إدخال إلى" type="date" value={filters.entry_to} onChange={(v)=>{setFilters(f=>({...f,entry_to:v})); setPage(1);}} />
             <TextField small label="معاينة من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
