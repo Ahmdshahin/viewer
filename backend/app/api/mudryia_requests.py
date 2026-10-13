@@ -147,6 +147,8 @@ def list_mudryia_requests(
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
     survey_to: Optional[str] = None,
+    directorate_from: Optional[str] = None,
+    directorate_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
@@ -163,6 +165,7 @@ def list_mudryia_requests(
         surveyor=surveyor, office=office,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
+        directorate_from=directorate_from, directorate_to=directorate_to,
         sort=sort, dir=dir, ids=ids,
         geom_tables=GEOM_TABLES,
     )
@@ -254,6 +257,8 @@ def export_mudryia_requests_csv(
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
     survey_to: Optional[str] = None,
+    directorate_from: Optional[str] = None,
+    directorate_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
@@ -271,6 +276,7 @@ def export_mudryia_requests_csv(
         surveyor=surveyor, office=office,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
+        directorate_from=directorate_from, directorate_to=directorate_to,
         sort=sort, dir=dir, ids=ids,
         geom_tables=GEOM_TABLES,
     )

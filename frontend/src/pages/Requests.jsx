@@ -221,7 +221,7 @@ function StatusBadge({ status }) {
   );
 }
 
-const EMPTY_FILTERS = { q: "", status: [], survey_status: [], has_geometry: "", governorate: [], center: [], village: [], surveyor: [], office: [], entry_from: "", entry_to: "", survey_from: "", survey_to: "", mine: false };
+const EMPTY_FILTERS = { q: "", status: [], survey_status: [], has_geometry: "", governorate: [], center: [], village: [], surveyor: [], office: [], entry_from: "", entry_to: "", survey_from: "", survey_to: "", directorate_from: "", directorate_to: "", mine: false };
 const MULTI_KEYS = ["status", "survey_status", "governorate", "center", "village", "surveyor", "office"];
 const PARAM_OF = { status: "request_status", survey_status: "survey_status" };
 
@@ -315,7 +315,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       if (F.survey_status.length) sp.set("survey_status", F.survey_status.join(","));
       if (F.has_geometry !== "") sp.set("has_geometry", F.has_geometry);
       for (const k of ["governorate","center","village","surveyor","office"]) if (F[k].length) sp.set(k, F[k].join(","));
-      for (const k of ["entry_from","entry_to","survey_from","survey_to"]) if (F[k]) sp.set(k, F[k]);
+      for (const k of ["entry_from","entry_to","survey_from","survey_to","directorate_from","directorate_to"]) if (F[k]) sp.set(k, F[k]);
       if (F.mine) sp.set("mine", "1");
       if (page > 1) sp.set("page", String(page));
       if (perPage !== 50) sp.set("per_page", String(perPage));
@@ -392,6 +392,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       if (filters.entry_to) params.set("entry_to", filters.entry_to);
       if (filters.survey_from) params.set("survey_from", filters.survey_from);
       if (filters.survey_to) params.set("survey_to", filters.survey_to);
+      if (filters.directorate_from) params.set("directorate_from", filters.directorate_from);
+      if (filters.directorate_to) params.set("directorate_to", filters.directorate_to);
       if (filters.mine) params.set("assigned_to_me", "true");
       const r = await api.get(base + "?" + params.toString(), { ...authH(), signal: ctrl.signal });
       const data = r.data || r;
@@ -548,6 +550,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     if (filters.entry_to) params.set("entry_to", filters.entry_to);
     if (filters.survey_from) params.set("survey_from", filters.survey_from);
     if (filters.survey_to) params.set("survey_to", filters.survey_to);
+    if (filters.directorate_from) params.set("directorate_from", filters.directorate_from);
+    if (filters.directorate_to) params.set("directorate_to", filters.directorate_to);
     if (filters.mine) params.set("assigned_to_me", "true");
     if (extra) for (const k of Object.keys(extra)) if (extra[k] != null && extra[k] !== "") params.set(k, extra[k]);
     return params;
@@ -864,8 +868,10 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <DropField multi label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||[]})); setPage(1);}} options={allOfficeNames} clearable />
             <TextField small label="إدخال من" type="date" value={filters.entry_from} onChange={(v)=>{setFilters(f=>({...f,entry_from:v})); setPage(1);}} />
             <TextField small label="إدخال إلى" type="date" value={filters.entry_to} onChange={(v)=>{setFilters(f=>({...f,entry_to:v})); setPage(1);}} />
-            <TextField small label="معاينة من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
-            <TextField small label="معاينة إلى" type="date" value={filters.survey_to} onChange={(v)=>{setFilters(f=>({...f,survey_to:v})); setPage(1);}} />
+            <TextField small label="رفع ميدانى من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
+            <TextField small label="رفع ميدانى إلى" type="date" value={filters.survey_to} onChange={(v)=>{setFilters(f=>({...f,survey_to:v})); setPage(1);}} />
+            <TextField small label="إرسال مديرية من" type="date" value={filters.directorate_from} onChange={(v)=>{setFilters(f=>({...f,directorate_from:v})); setPage(1);}} />
+            <TextField small label="إرسال مديرية إلى" type="date" value={filters.directorate_to} onChange={(v)=>{setFilters(f=>({...f,directorate_to:v})); setPage(1);}} />
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-start justify-between gap-2">
             <details className="flex-1 min-w-0">

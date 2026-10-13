@@ -1098,6 +1098,8 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
                         entry_to: Optional[str] = None,
                         survey_from: Optional[str] = None,
                         survey_to: Optional[str] = None,
+                        directorate_from: Optional[str] = None,
+                        directorate_to: Optional[str] = None,
                         sort: Optional[str] = None,
                         dir: Optional[str] = None,
                         ids: Optional[str] = None,
@@ -1184,14 +1186,24 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
         d = _parse_date(entry_to)
         if d:
             query = query.filter(model.entry_date <= d)
+    # survey_from/to filter the FIELD survey date (alt_survey_date, shown as
+    # "تاريخ الرفع الميدانى"). Param names kept for saved-view/URL compat.
     if survey_from:
         d = _parse_date(survey_from)
         if d:
-            query = query.filter(model.survey_date >= d)
+            query = query.filter(model.alt_survey_date >= d)
     if survey_to:
         d = _parse_date(survey_to)
         if d:
-            query = query.filter(model.survey_date <= d)
+            query = query.filter(model.alt_survey_date <= d)
+    if directorate_from:
+        d = _parse_date(directorate_from)
+        if d:
+            query = query.filter(model.directorate_date >= d)
+    if directorate_to:
+        d = _parse_date(directorate_to)
+        if d:
+            query = query.filter(model.directorate_date <= d)
     sort_cols = {
         "id": model.id,
         "req_number": model.req_number,
@@ -1334,6 +1346,8 @@ def list_requests(
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
     survey_to: Optional[str] = None,
+    directorate_from: Optional[str] = None,
+    directorate_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
@@ -1350,6 +1364,7 @@ def list_requests(
         surveyor=surveyor, office=office,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
+        directorate_from=directorate_from, directorate_to=directorate_to,
         sort=sort, dir=dir, ids=ids,
     )
 
@@ -1440,6 +1455,8 @@ def export_requests_csv(
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
     survey_to: Optional[str] = None,
+    directorate_from: Optional[str] = None,
+    directorate_to: Optional[str] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
@@ -1457,6 +1474,7 @@ def export_requests_csv(
         surveyor=surveyor, office=office,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
+        directorate_from=directorate_from, directorate_to=directorate_to,
         sort=sort, dir=dir, ids=ids,
     )
     items = query.all()
