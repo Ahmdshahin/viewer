@@ -162,7 +162,7 @@ function DropField({ label, value, onChange, options = [], clearable = false, di
   );
 }
 
-function StaticField({ label, value }) {
+function StaticField({ label, value, small = false }) {
   return (
     <div>
       <label className={small ? FIELD_LABEL_SM : FIELD_LABEL}>{label}</label>
