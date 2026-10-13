@@ -23,6 +23,7 @@ const DataProcessor = () => {
 
   // Path configurations
   const [pathMode, setPathMode] = useState("upload"); // upload | server
+  const [staged, setStaged] = useState(false); // true only after a fresh upload this session
   const [inputPath, setInputPath] = useState("");
   const [outputGpkg, setOutputGpkg] = useState("");
   const [doneDir, setDoneDir] = useState("");
@@ -514,6 +515,7 @@ const DataProcessor = () => {
                       setOutputGpkg(p.outputGpkg);
                       setDoneDir(p.doneDir);
                       setConflictsFile(p.conflictsFile);
+                      setStaged(true);
                       setSuccess("Upload complete — review the staged paths below, then scan.");
                     }}
                     onCleared={() => {
@@ -521,9 +523,10 @@ const DataProcessor = () => {
                       setOutputGpkg("");
                       setDoneDir("");
                       setConflictsFile("");
+                      setStaged(false);
                     }}
                   />
-                  {(inputPath || outputGpkg) && (
+                  {staged && (inputPath || outputGpkg) && (
                     <div className="border border-gray-200 rounded-md p-2.5 bg-gray-50 text-[11px] font-mono text-gray-600 space-y-1 break-all">
                       <p><span className="font-sans font-semibold">Input:</span> {inputPath || "—"}</p>
                       <p><span className="font-sans font-semibold">Output:</span> {outputGpkg || "—"}</p>
