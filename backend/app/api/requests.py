@@ -1070,6 +1070,14 @@ def _notify_user(db: Session, user_id: Optional[int], ntype: str, title: str,
     ))
 
 
+def _multi(value):
+    """Split a comma-separated filter into a non-empty list, or None."""
+    if value is None:
+        return None
+    parts = [p.strip() for p in str(value).split(",") if p.strip()]
+    return parts or None
+
+
 def _apply_list_filters(query, db: Session, current_user: User, model, *,
                         q: Optional[str] = None,
                         governorate_id: Optional[int] = None,
@@ -1118,10 +1126,12 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
         query = query.filter(model.center_id == center_id)
     if village_id is not None:
         query = query.filter(model.village_id == village_id)
-    if request_status:
-        query = query.filter(model.request_status == request_status)
-    if survey_status:
-        query = query.filter(model.survey_status == survey_status)
+    statuses = _multi(request_status)
+    if statuses:
+        query = query.filter(model.request_status.in_(statuses))
+    surveys = _multi(survey_status)
+    if surveys:
+        query = query.filter(model.survey_status.in_(surveys))
     if surveyor_id is not None:
         query = query.filter(model.assigned_surveyor_id == surveyor_id)
     if office_id is not None:
@@ -1139,22 +1149,33 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
             all_reqs = [rn for (rn,) in db.query(model.req_number).all() if rn]
             query = query.filter(model.req_number.in_(
                 [rn for rn in all_reqs if rn not in geom_reqs]))
-    if governorate:
-        gov_ids = [i for (i,) in db.query(Governorate.id)
-                   .filter(Governorate.name.ilike(f"%{governorate.strip()}%")).all()]
+    gov_names = _multi(governorate)
+    if gov_names:
+        gov_ids = []
+        for nm in gov_names:
+            gov_ids += [i for (i,) in db.query(Governorate.id)
+                        .filter(Governorate.name.ilike(f"%{nm}%")).all()]
         query = query.filter(model.governorate_id.in_(gov_ids)) if gov_ids else query.filter(text("1=0"))
-    if center:
-        cen_ids = [i for (i,) in db.query(Center.id)
-                   .filter(Center.name.ilike(f"%{center.strip()}%")).all()]
+    cen_names = _multi(center)
+    if cen_names:
+        cen_ids = []
+        for nm in cen_names:
+            cen_ids += [i for (i,) in db.query(Center.id)
+                        .filter(Center.name.ilike(f"%{nm}%")).all()]
         query = query.filter(model.center_id.in_(cen_ids)) if cen_ids else query.filter(text("1=0"))
-    if village:
-        vil_ids = [i for (i,) in db.query(Village.id)
-                   .filter(Village.name.ilike(f"%{village.strip()}%")).all()]
+    vil_names = _multi(village)
+    if vil_names:
+        vil_ids = []
+        for nm in vil_names:
+            vil_ids += [i for (i,) in db.query(Village.id)
+                        .filter(Village.name.ilike(f"%{nm}%")).all()]
         query = query.filter(model.village_id.in_(vil_ids)) if vil_ids else query.filter(text("1=0"))
-    if surveyor:
-        query = query.filter(model.surveyor_name.ilike(f"%{surveyor.strip()}%"))
-    if office:
-        query = query.filter(model.office_name.ilike(f"%{office.strip()}%"))
+    surv_names = _multi(surveyor)
+    if surv_names:
+        query = query.filter(or_(*[model.surveyor_name.ilike(f"%{nm}%") for nm in surv_names]))
+    off_names = _multi(office)
+    if off_names:
+        query = query.filter(or_(*[model.office_name.ilike(f"%{nm}%") for nm in off_names]))
     if entry_from:
         d = _parse_date(entry_from)
         if d:

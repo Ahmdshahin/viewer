@@ -80,14 +80,16 @@ function SelectField({ label, value, onChange, options = [], clearable = false, 
   );
 }
 
-function DropField({ label, value, onChange, options = [], clearable = false, disabled = false }) {
+function DropField({ label, value, onChange, options = [], clearable = false, disabled = false, multi = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef(null);
   const opts = (options || []).map((opt, i) => (typeof opt === "object"
     ? { value: String(opt.value ?? ""), label: opt.label ?? opt.value ?? "", key: "v" + String(opt.value ?? i) }
     : { value: String(opt), label: String(opt), key: i + ":" + String(opt) }));
-  const current = opts.find((o) => o.value === String(value ?? ""));
+  const labelOf = (v) => (opts.find((o) => o.value === String(v ?? "")) || {}).label || String(v ?? "");
+  const selArr = multi ? (Array.isArray(value) ? value.map(String) : []) : [];
+  const current = !multi ? opts.find((o) => o.value === String(value ?? "")) : null;
   const needle = q.trim().toLowerCase();
   const shown = needle ? opts.filter((o) => o.label.toLowerCase().includes(needle)) : opts;
   useEffect(() => {
@@ -102,9 +104,16 @@ function DropField({ label, value, onChange, options = [], clearable = false, di
       document.removeEventListener("keydown", esc);
     };
   }, [open ]);
+  const toggle = (v) => {
+    if (!multi) { onChange(v); setOpen(false); return; }
+    onChange(selArr.includes(v) ? selArr.filter((x) => x !== v) : [...selArr, v]);
+  };
+  const btnText = !multi
+    ? (current ? current.label : (clearable ? "--" : "اختر..."))
+    : (selArr.length === 0 ? "--" : selArr.length === 1 ? labelOf(selArr[0]) : `${labelOf(selArr[0])} +${selArr.length - 1}`);
   return (
     <div>
-      <label className={FIELD_LABEL_SM}>{label}</label>
+      <label className={FIELD_LABEL_SM}>{label}{multi && selArr.length > 0 ? ` (${selArr.length})` : ""}</label>
       <div className="relative" ref={ref}>
         <button
           type="button"
@@ -112,8 +121,8 @@ function DropField({ label, value, onChange, options = [], clearable = false, di
           onClick={() => setOpen((o) => !o)}
           className={(disabled ? "bg-slate-50 " : "bg-white ") + "w-full border border-slate-300 rounded-lg px-2 py-1 text-xs shadow-sm flex items-center justify-between gap-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors disabled:opacity-60"}
         >
-          <span className={"truncate " + (current ? "text-slate-800" : "text-slate-400")}>
-            {current ? current.label : (clearable ? "--" : "اختر...")}
+          <span className={"truncate " + ((multi ? selArr.length : current) ? "text-slate-800" : "text-slate-400")}>
+            {btnText}
           </span>
           <ChevronDown className={"w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform " + (open ? "rotate-180" : "")} />
         </button>
@@ -133,20 +142,27 @@ function DropField({ label, value, onChange, options = [], clearable = false, di
             <ul className="max-h-56 overflow-auto py-1">
               {clearable && (
                 <li>
-                  <button type="button" onClick={() => { onChange(null); setOpen(false); }}
+                  <button type="button" onClick={() => { onChange(multi ? [] : null); setOpen(false); }}
                     className="w-full text-right px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-100">
-                    --
+                    {multi ? "مسح الكل" : "--"}
                   </button>
                 </li>
               )}
               {shown.map((o) => {
-                const sel = !!(current && o.value === current.value);
+                const sel = multi ? selArr.includes(o.value) : !!(current && o.value === current.value);
                 return (
                   <li key={o.key}>
-                    <button type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                    <button type="button" onClick={() => toggle(o.value)}
                       className={"w-full text-right px-3 py-1.5 text-xs flex items-center justify-between gap-2 " + (sel ? "bg-blue-50 text-blue-800 font-semibold" : "text-slate-700 hover:bg-slate-100")}>
-                      <span className="truncate">{o.label}</span>
-                      {sel && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      <span className="inline-flex items-center gap-2 truncate">
+                        {multi && (
+                          <span className={"w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 " + (sel ? "bg-blue-600 border-blue-600" : "border-slate-300 bg-white")}>
+                            {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                          </span>
+                        )}
+                        <span className="truncate">{o.label}</span>
+                      </span>
+                      {!multi && sel && <Check className="w-3.5 h-3.5 shrink-0" />}
                     </button>
                   </li>
                 );
@@ -205,19 +221,20 @@ function StatusBadge({ status }) {
   );
 }
 
-const EMPTY_FILTERS = { q: "", status: "", survey_status: "", has_geometry: "", governorate: "", center: "", village: "", surveyor: "", office: "", entry_from: "", entry_to: "", survey_from: "", survey_to: "", mine: false };
+const EMPTY_FILTERS = { q: "", status: [], survey_status: [], has_geometry: "", governorate: [], center: [], village: [], surveyor: [], office: [], entry_from: "", entry_to: "", survey_from: "", survey_to: "", mine: false };
+const MULTI_KEYS = ["status", "survey_status", "governorate", "center", "village", "surveyor", "office"];
+const PARAM_OF = { status: "request_status", survey_status: "survey_status" };
 
 function readURLFilters() {
   const f = { ...EMPTY_FILTERS };
   try {
     const sp = new URLSearchParams(window.location.search);
-    for (const k of Object.keys(EMPTY_FILTERS)) {
+    for (const k of Object.keys(f)) {
       if (k === "mine") { f.mine = sp.get("mine") === "1"; continue; }
-      const v = sp.get(k === "status" ? "request_status" : k === "survey_status" ? "survey_status" : k);
-      if (v != null && v !== "") f[k] = v;
+      const v = sp.get(PARAM_OF[k] || k);
+      if (v == null || v === "") continue;
+      f[k] = MULTI_KEYS.includes(k) ? v.split(",").map((x) => x.trim()).filter(Boolean) : v;
     }
-    const q = sp.get("q");
-    if (q) f.q = q;
   } catch (e) {}
   return f;
 }
@@ -294,10 +311,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       const sp = new URLSearchParams();
       const F = { ...filters };
       if (F.q) sp.set("q", F.q);
-      if (F.status) sp.set("request_status", F.status);
-      if (F.survey_status) sp.set("survey_status", F.survey_status);
+      if (F.status.length) sp.set("request_status", F.status.join(","));
+      if (F.survey_status.length) sp.set("survey_status", F.survey_status.join(","));
       if (F.has_geometry !== "") sp.set("has_geometry", F.has_geometry);
-      for (const k of ["governorate","center","village","surveyor","office","entry_from","entry_to","survey_from","survey_to"]) if (F[k]) sp.set(k, F[k]);
+      for (const k of ["governorate","center","village","surveyor","office"]) if (F[k].length) sp.set(k, F[k].join(","));
+      for (const k of ["entry_from","entry_to","survey_from","survey_to"]) if (F[k]) sp.set(k, F[k]);
       if (F.mine) sp.set("mine", "1");
       if (page > 1) sp.set("page", String(page));
       if (perPage !== 50) sp.set("per_page", String(perPage));
@@ -329,11 +347,18 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const centerOptions = centers.filter((c) => !activeGov || c.governorate_id === activeGov.id).map((c) => c.name);
   const activeCenter = centers.find((c) => c.name === form.center);
   const villageOptions = villages.filter((v) => !activeCenter || v.center_id === activeCenter.id).map((v) => v.name);
-  const fGov = governorates.find((g) => g.name === filters.governorate);
-  const fGovCenters = fGov ? centers.filter((c) => c.governorate_id === fGov.id) : centers;
-  const fCenterNames = uniq(fGovCenters.map((c) => c.name).filter(Boolean));
-  const fCenter = fGovCenters.find((c) => c.name === filters.center) || centers.find((c) => c.name === filters.center);
-  const fVillageNames = uniq(villages.filter((v) => !fCenter || v.center_id === fCenter.id).map((v) => v.name).filter(Boolean));
+  const govNameById = (id) => (governorates.find((g) => g.id === id) || {}).name || "";
+  const validCenterNames = (govs) => {
+    const list = govs && govs.length ? centers.filter((c) => govs.includes(govNameById(c.governorate_id))) : centers;
+    return uniq(list.map((c) => c.name).filter(Boolean));
+  };
+  const validVillageNames = (cens) => {
+    const ids = centers.filter((c) => cens.includes(c.name)).map((c) => c.id);
+    const list = cens && cens.length ? villages.filter((v) => ids.includes(v.center_id)) : villages;
+    return uniq(list.map((v) => v.name).filter(Boolean));
+  };
+  const fCenterNames = validCenterNames(filters.governorate);
+  const fVillageNames = validVillageNames(filters.center);
   const allSurveyorNames = uniq((staff.staff || []).filter(Boolean));
   const allOfficeNames = uniq((staff.offices || []).filter(Boolean));
 
@@ -355,14 +380,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       params.set("sort", sort.key);
       params.set("dir", sort.dir);
       if (dq) params.set("q", dq);
-      if (filters.status) params.set("request_status", filters.status);
-      if (filters.survey_status) params.set("survey_status", filters.survey_status);
+      if (filters.status.length) params.set("request_status", filters.status.join(","));
+      if (filters.survey_status.length) params.set("survey_status", filters.survey_status.join(","));
       if (filters.has_geometry !== "") params.set("has_geometry", filters.has_geometry);
-      if (filters.governorate) params.set("governorate", filters.governorate);
-      if (filters.center) params.set("center", filters.center);
-      if (filters.village) params.set("village", filters.village);
-      if (filters.surveyor) params.set("surveyor", filters.surveyor);
-      if (filters.office) params.set("office", filters.office);
+      if (filters.governorate.length) params.set("governorate", filters.governorate.join(","));
+      if (filters.center.length) params.set("center", filters.center.join(","));
+      if (filters.village.length) params.set("village", filters.village.join(","));
+      if (filters.surveyor.length) params.set("surveyor", filters.surveyor.join(","));
+      if (filters.office.length) params.set("office", filters.office.join(","));
       if (filters.entry_from) params.set("entry_from", filters.entry_from);
       if (filters.entry_to) params.set("entry_to", filters.entry_to);
       if (filters.survey_from) params.set("survey_from", filters.survey_from);
@@ -511,14 +536,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const buildFilterParams = (extra) => {
     const params = new URLSearchParams();
     if (filters.q) params.set("q", filters.q);
-    if (filters.status) params.set("request_status", filters.status);
-    if (filters.survey_status) params.set("survey_status", filters.survey_status);
+    if (filters.status.length) params.set("request_status", filters.status.join(","));
+    if (filters.survey_status.length) params.set("survey_status", filters.survey_status.join(","));
     if (filters.has_geometry !== "") params.set("has_geometry", filters.has_geometry);
-    if (filters.governorate) params.set("governorate", filters.governorate);
-    if (filters.center) params.set("center", filters.center);
-    if (filters.village) params.set("village", filters.village);
-    if (filters.surveyor) params.set("surveyor", filters.surveyor);
-    if (filters.office) params.set("office", filters.office);
+    if (filters.governorate.length) params.set("governorate", filters.governorate.join(","));
+    if (filters.center.length) params.set("center", filters.center.join(","));
+    if (filters.village.length) params.set("village", filters.village.join(","));
+    if (filters.surveyor.length) params.set("surveyor", filters.surveyor.join(","));
+    if (filters.office.length) params.set("office", filters.office.join(","));
     if (filters.entry_from) params.set("entry_from", filters.entry_from);
     if (filters.entry_to) params.set("entry_to", filters.entry_to);
     if (filters.survey_from) params.set("survey_from", filters.survey_from);
@@ -772,7 +797,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           <div className="mt-3 flex flex-wrap gap-2 items-center">
             <span className="text-[11px] font-semibold text-slate-500">حسب الحالة:</span>
             {Object.entries(stats.by_status || {}).filter(([, n]) => n > 0).slice(0, 12).map(([s, n]) => (
-              <button key={s} onClick={() => { setFilters((f) => ({ ...f, status: s })); setPage(1); setShowFilters(true); }} title="فلترة بهذه الحالة" className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-full px-2 py-0.5">
+              <button key={s} onClick={() => { setFilters((f) => ({ ...f, status: [s] })); setPage(1); setShowFilters(true); }} title="فلترة بهذه الحالة" className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-full px-2 py-0.5">
                 <StatusBadge status={s} /> <span className="tabular-nums text-slate-600">{Number(n).toLocaleString("en-US")}</span>
               </button>
             ))}
@@ -781,7 +806,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <div className="mt-2 flex flex-wrap gap-2 items-center">
               <span className="text-[11px] font-semibold text-slate-500">أعلى المراكز:</span>
               {(stats.by_center || []).slice(0, 8).map((c) => (
-                <button key={c.name || "?"} onClick={() => { setFilters((f) => ({ ...f, center: c.name || "" })); setPage(1); setShowFilters(true); }} title="فلترة بهذا المركز" className="text-[11px] font-medium bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-full px-2 py-0.5 text-slate-700">
+                <button key={c.name || "?"} onClick={() => { setFilters((f) => ({ ...f, center: c.name ? [c.name] : [] })); setPage(1); setShowFilters(true); }} title="فلترة بهذا المركز" className="text-[11px] font-medium bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-full px-2 py-0.5 text-slate-700">
                   {c.name || "—"} <span className="tabular-nums text-slate-500">({Number(c.count || 0).toLocaleString("en-US")})</span>
                 </button>
               ))}
@@ -829,14 +854,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <UserCheck className="w-4 h-4" /> طلباتي
               </button>
             </div>
-            <DropField label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||""})); setPage(1);}} options={requestStatuses} clearable />
-            <DropField label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||""})); setPage(1);}} options={surveyStatuses} clearable />
+            <DropField multi label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||[]})); setPage(1);}} options={requestStatuses} clearable />
+            <DropField multi label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||[]})); setPage(1);}} options={surveyStatuses} clearable />
             <DropField label="وجود خريطة" value={filters.has_geometry} onChange={(v)=>{setFilters(f=>({...f,has_geometry:v||""})); setPage(1);}} options={[{value:"true",label:"يوجد"}, {value:"false",label:"لا يوجد"}]} clearable />
-            <DropField label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters(f=>({...f,governorate:v||"",center:"",village:""})); setPage(1);}} options={governorateNames} clearable />
-            <DropField label="المركز" value={filters.center} onChange={(v)=>{setFilters(f=>({...f,center:v||"",village:""})); setPage(1);}} options={fCenterNames} clearable />
-            <DropField label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||""})); setPage(1);}} options={fVillageNames} clearable />
-            <DropField label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||""})); setPage(1);}} options={allSurveyorNames} clearable />
-            <DropField label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||""})); setPage(1);}} options={allOfficeNames} clearable />
+            <DropField multi label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters((f)=>{const govs=v||[];const vc=validCenterNames(govs);const nc=(f.center||[]).filter((n)=>vc.includes(n));const vv=validVillageNames(nc);return {...f,governorate:govs,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={governorateNames} clearable />
+            <DropField multi label="المركز" value={filters.center} onChange={(v)=>{setFilters((f)=>{const nc=v||[];const vv=validVillageNames(nc);return {...f,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={fCenterNames} clearable />
+            <DropField multi label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||[]})); setPage(1);}} options={fVillageNames} clearable />
+            <DropField multi label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||[]})); setPage(1);}} options={allSurveyorNames} clearable />
+            <DropField multi label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||[]})); setPage(1);}} options={allOfficeNames} clearable />
             <TextField small label="إدخال من" type="date" value={filters.entry_from} onChange={(v)=>{setFilters(f=>({...f,entry_from:v})); setPage(1);}} />
             <TextField small label="إدخال إلى" type="date" value={filters.entry_to} onChange={(v)=>{setFilters(f=>({...f,entry_to:v})); setPage(1);}} />
             <TextField small label="معاينة من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
