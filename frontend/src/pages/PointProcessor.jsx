@@ -14,7 +14,6 @@ const PointProcessor = () => {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [step, setStep] = useState(1); // wizard: 1 paths, 2 review, 3 run, 4 migrate to PostGIS
   const [pathMode, setPathMode] = useState("upload"); // upload | server
-  const [staged, setStaged] = useState(false); // true only after a fresh upload this session
   const [pipelineRan, setPipelineRan] = useState(false);
   const [askConfirm, confirmModal] = useConfirm();
   const [bulkReplace, setBulkReplace] = useState(null);
@@ -514,7 +513,6 @@ const PointProcessor = () => {
                       setOutputGpkg(p.outputGpkg);
                       setDoneDir(p.doneDir);
                       setConflictsFile(p.conflictsFile);
-                      setStaged(true);
                       setSuccess("Upload complete — review the staged paths below, then scan.");
                     }}
                     onCleared={() => {
@@ -522,10 +520,9 @@ const PointProcessor = () => {
                       setOutputGpkg("");
                       setDoneDir("");
                       setConflictsFile("");
-                      setStaged(false);
                     }}
                   />
-                  {staged && (inputPath || outputGpkg) && (
+                  {(inputPath || outputGpkg) && (
                     <div className="border border-gray-200 rounded-md p-2.5 bg-gray-50 text-[11px] font-mono text-gray-600 space-y-1 break-all">
                       <p><span className="font-sans font-semibold">Input:</span> {inputPath || "—"}</p>
                       <p><span className="font-sans font-semibold">Output:</span> {outputGpkg || "—"}</p>
