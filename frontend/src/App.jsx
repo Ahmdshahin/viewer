@@ -14,7 +14,7 @@ import TrackingBoard from "./pages/TrackingBoard";
 import LookupsAdmin from "./pages/LookupsAdmin";
 import Reports from "./pages/Reports";
 import axios from "axios";
-import { LayoutDashboard, Users, LogOut, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned, ChevronDown } from "lucide-react";
 
 function NotificationsBell() {
   const [open, setOpen] = useState(false);
@@ -112,6 +112,7 @@ function NotificationsBell() {
 const MENU_GROUPS = [
   {
     title: "Requests",
+    paths: ["/requests", "/mudryia-requests", "/tracking"],
     items: [
       { key: "requests", to: "/requests", label: "Company Requests", Icon: ClipboardList },
       { key: "mudryia_requests", to: "/mudryia-requests", label: "Mudryia Requests", Icon: MapPinned },
@@ -120,6 +121,7 @@ const MENU_GROUPS = [
   },
   {
     title: "Processing",
+    paths: ["/processor", "/point", "/import"],
     items: [
       { key: "processor", to: "/processor", label: "Data Processor", Icon: Database },
       { key: "point", to: "/point", label: "Point Processor", Icon: MapPin },
@@ -128,6 +130,7 @@ const MENU_GROUPS = [
   },
   {
     title: "Insights",
+    paths: ["/dashboard", "/reports"],
     items: [
       { key: "dashboard", to: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
       { key: "reports", to: "/reports", label: "Reports", Icon: BarChart3 },
@@ -135,6 +138,7 @@ const MENU_GROUPS = [
   },
   {
     title: "Administration",
+    paths: ["/users", "/db-settings", "/lookups"],
     items: [
       { key: "users", to: "/users", label: "Users", Icon: Users },
       { key: "database", to: "/db-settings", label: "Database", Icon: Server },
@@ -142,6 +146,68 @@ const MENU_GROUPS = [
     ],
   },
 ];
+
+function NavTabs({ pages }) {
+  const [open, setOpen] = useState(null);
+  const navRef = useRef(null);
+  const location = useLocation();
+
+  useEffect(() => { setOpen(null); }, [location.pathname]);
+
+  useEffect(() => {
+    function onDown(e) {
+      if (navRef.current && !navRef.current.contains(e.target)) setOpen(null);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(null);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const groups = MENU_GROUPS.map((g) => ({ ...g, visible: g.items.filter((i) => pages.includes(i.key)) }))
+    .filter((g) => g.visible.length > 0);
+  if (!groups.length) return null;
+
+  return (
+    <nav ref={navRef} className="flex items-center gap-1 overflow-x-auto">
+      {groups.map((g) => {
+        const active = (g.paths || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
+        const isOpen = open === g.title;
+        return (
+          <div key={g.title} className="relative shrink-0">
+            <button
+              onClick={() => setOpen(isOpen ? null : g.title)}
+              className={"inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap " +
+                (active ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5")}
+            >
+              {g.title}
+              <ChevronDown className={"w-3.5 h-3.5 transition-transform " + (isOpen ? "rotate-180" : "")} />
+            </button>
+            {isOpen && (
+              <div className="absolute top-full mt-1 min-w-[220px] bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50">
+                {g.visible.map((i) => (
+                  <Link
+                    key={i.key}
+                    to={i.to}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-800 flex items-center transition-colors"
+                  >
+                    <i.Icon className="w-4 h-4 mr-2.5 text-gray-400" />
+                    {i.label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
 
 const menuInitials = (fullName, username) => {
   const src = (fullName || "").trim() || (username || "").trim();
@@ -173,8 +239,13 @@ function TopBar({ setToken, role, pages, me }) {
     <div className="h-16 bg-slate-900 text-white flex items-center justify-between px-6 shadow-md z-50">
       
       {/* Brand */}
-      <div className="text-xl font-black tracking-wider flex items-center">
+      <div className="text-xl font-black tracking-wider flex items-center shrink-0">
         <Link to="/">GeoPortal<span className="text-blue-500">.</span></Link>
+      </div>
+
+      {/* Group tabs */}
+      <div className="flex-1 flex justify-center px-2 min-w-0">
+        <NavTabs pages={pages} />
       </div>
 
       
@@ -205,31 +276,7 @@ function TopBar({ setToken, role, pages, me }) {
                 {role}
               </span>
             </div>
-            {MENU_GROUPS.map((group) => {
-              const visible = group.items.filter((i) => pages.includes(i.key));
-              if (!visible.length) return null;
-              return (
-                <div key={group.title} className="py-1">
-                  <p className="px-4 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    {group.title}
-                  </p>
-                  {visible.map((i) => (
-                    <Link
-                      key={i.key}
-                      to={i.to}
-                      onClick={() => setShowDropdown(false)}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-800 flex items-center transition-colors"
-                    >
-                      <i.Icon className="w-4 h-4 mr-2.5 text-gray-400" />
-                      {i.label}
-                    </Link>
-                  ))}
-                </div>
-              );
-            })}
-            {pages.length > 0 && (
-              <div className="border-t border-gray-100 my-1"></div>
-            )}
+            <div className="border-t border-gray-100 my-1"></div>
             <button
               onClick={() => { localStorage.removeItem("token"); setToken(null); }}
               className="w-full text-left px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 flex items-center transition-colors"
