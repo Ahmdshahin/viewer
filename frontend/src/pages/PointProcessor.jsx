@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useConfirm } from "../components/ConfirmModal";
-import { MapPin, AlertTriangle, Play, RefreshCw, FolderSearch, FolderOpen, Save, FileJson, Archive, Terminal, CheckCircle, Search, Download, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { MapPin, AlertTriangle, Play, RefreshCw, FolderSearch, FolderOpen, Save, FileJson, Archive, Terminal, CheckCircle, Search, Download, Trash2, X, ChevronDown, ChevronRight, UploadCloud } from 'lucide-react';
+import StagingUpload from '../components/StagingUpload';
 
 const PointProcessor = () => {
   const [scanData, setScanData] = useState(null);
@@ -12,6 +13,7 @@ const PointProcessor = () => {
   const [resultTab, setResultTab] = useState("ready"); // "ready" | "done" | "conflicts"
   const [expandedGroups, setExpandedGroups] = useState({});
   const [step, setStep] = useState(1); // wizard: 1 paths, 2 review, 3 run, 4 migrate to PostGIS
+  const [pathMode, setPathMode] = useState("upload"); // upload | server
   const [pipelineRan, setPipelineRan] = useState(false);
   const [askConfirm, confirmModal] = useConfirm();
   const [bulkReplace, setBulkReplace] = useState(null);
@@ -36,19 +38,6 @@ const PointProcessor = () => {
       scrollToBottom();
     }
   }, [progress.logs]);
-
-  const handleBrowse = async (type, title, defaultExt, setter) => {
-    try {
-      const res = await axios.get('/api/v1/point/browse', {
-        params: { type, title, default_ext: defaultExt }
-      });
-      if (res.data.path) {
-        setter(res.data.path.replace(/\//g, '\\\\'));
-      }
-    } catch {
-      setError("Failed to open file browser dialog.");
-    }
-  };
 
   const exportCSV = () => {
     if (!scanData) return;
@@ -505,54 +494,76 @@ const PointProcessor = () => {
               Source paths — where to read from and write to
             </div>
             <div className="p-4 overflow-y-auto flex-1 space-y-4">
-              <div>
-                <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
-                  <MapPin className="w-3 h-3 mr-1 text-purple-500" /> Point Input Directory
-                </label>
-                <div className="flex">
-                  <input type="text" value={inputPath} onChange={(e) => setInputPath(e.target.value)} placeholder="Folder that contains the point shapefile folders" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
-                  <button onClick={() => handleBrowse('folder', 'Select Point Shapefiles Directory', '', setInputPath)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
-                    <Search className="w-3 h-3" />
-                  </button>
-                </div>
+              <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-lg">
+                <button onClick={() => setPathMode("upload")} disabled={running}
+                  className={"inline-flex items-center justify-center px-2 py-1.5 rounded-md text-xs font-semibold transition " + (pathMode === "upload" ? "bg-white text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+                  <UploadCloud className="w-3.5 h-3.5 mr-1" /> Upload from my PC
+                </button>
+                <button onClick={() => setPathMode("server")} disabled={running}
+                  className={"inline-flex items-center justify-center px-2 py-1.5 rounded-md text-xs font-semibold transition " + (pathMode === "server" ? "bg-white text-blue-700 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+                  <FolderOpen className="w-3.5 h-3.5 mr-1" /> Server paths
+                </button>
               </div>
-              <div>
-                <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
-                  <Save className="w-3 h-3 mr-1 text-emerald-500" /> Output Point GeoPackage
-                </label>
-                <div className="flex">
-                  <input type="text" value={outputGpkg} onChange={(e) => setOutputGpkg(e.target.value)} placeholder="Full path to the output .gpkg file" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
-                  <button onClick={() => handleBrowse('save_file', 'Select Output Point GeoPackage', '.gpkg', setOutputGpkg)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
-                    <Search className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
-                  <Archive className="w-3 h-3 mr-1 text-amber-500" /> Archive Directory
-                </label>
-                <div className="flex">
-                  <input type="text" value={doneDir} onChange={(e) => setDoneDir(e.target.value)} placeholder="Folder where processed folders are archived" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
-                  <button onClick={() => handleBrowse('folder', 'Select Done/Archive Directory', '', setDoneDir)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
-                    <Search className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
-                  <FileJson className="w-3 h-3 mr-1 text-red-500" /> Conflicts Log File
-                </label>
-                <div className="flex">
-                  <input type="text" value={conflictsFile} onChange={(e) => setConflictsFile(e.target.value)} placeholder="Full path to the conflicts .json file" className="w-full border border-gray-300 rounded-l px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
-                  <button onClick={() => handleBrowse('save_file', 'Select Conflicts JSON File', '.json', setConflictsFile)} disabled={running} className="bg-gray-200 hover:bg-gray-300 border border-gray-300 border-l-0 rounded-r px-2 py-1.5 text-gray-700 transition-colors">
-                    <Search className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <p className="text-[11px] text-gray-400 leading-snug">
-                Each request folder must contain point (.shp) files. Folders without point geometry are reported as conflicts.
-                Only the Point layer is produced; nothing is written to the main Land / Eshghalat pipeline.
-              </p>
+              {pathMode === "upload" ? (
+                <>
+                  <StagingUpload
+                    disabled={running}
+                    onStaged={(p) => {
+                      setInputPath(p.inputDir);
+                      setOutputGpkg(p.outputGpkg);
+                      setDoneDir(p.doneDir);
+                      setConflictsFile(p.conflictsFile);
+                      setSuccess("Upload complete — review the staged paths below, then scan.");
+                    }}
+                    onCleared={() => {
+                      setInputPath("");
+                      setOutputGpkg("");
+                      setDoneDir("");
+                      setConflictsFile("");
+                    }}
+                  />
+                  {(inputPath || outputGpkg) && (
+                    <div className="border border-gray-200 rounded-md p-2.5 bg-gray-50 text-[11px] font-mono text-gray-600 space-y-1 break-all">
+                      <p><span className="font-sans font-semibold">Input:</span> {inputPath || "—"}</p>
+                      <p><span className="font-sans font-semibold">Output:</span> {outputGpkg || "—"}</p>
+                      <p><span className="font-sans font-semibold">Archive:</span> {doneDir || "—"}</p>
+                      <p><span className="font-sans font-semibold">Conflicts:</span> {conflictsFile || "—"}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
+                      <MapPin className="w-3 h-3 mr-1 text-purple-500" /> Point Input Directory (on the server)
+                    </label>
+                    <input type="text" value={inputPath} onChange={(e) => setInputPath(e.target.value)} placeholder="Folder that contains the point shapefile folders" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  </div>
+                  <div>
+                    <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
+                      <Save className="w-3 h-3 mr-1 text-emerald-500" /> Output Point GeoPackage (on the server)
+                    </label>
+                    <input type="text" value={outputGpkg} onChange={(e) => setOutputGpkg(e.target.value)} placeholder="Full path to the output .gpkg file" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  </div>
+                  <div>
+                    <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
+                      <Archive className="w-3 h-3 mr-1 text-amber-500" /> Archive Directory (on the server)
+                    </label>
+                    <input type="text" value={doneDir} onChange={(e) => setDoneDir(e.target.value)} placeholder="Folder where processed folders are archived" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  </div>
+                  <div>
+                    <label className="flex items-center text-xs font-semibold text-gray-600 mb-1">
+                      <FileJson className="w-3 h-3 mr-1 text-red-500" /> Conflicts Log File (on the server)
+                    </label>
+                    <input type="text" value={conflictsFile} onChange={(e) => setConflictsFile(e.target.value)} placeholder="Full path to the conflicts .json file" className="w-full border border-gray-300 rounded-md px-2 py-1.5 text-xs placeholder:text-gray-400 focus:ring-blue-500 focus:border-blue-500 bg-gray-50" disabled={running} />
+                  </div>
+                  <p className="text-[11px] text-gray-400 leading-snug">
+                    Type a path the server can read — Scan validates it before running.
+                    Each request folder must contain point (.shp) files. Folders without point geometry are reported as conflicts.
+                    Only the Point layer is produced; nothing is written to the main Land / Eshghalat pipeline.
+                  </p>
+                </>
+              )}
             </div>
             <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center flex-shrink-0">
               <button onClick={emptyDatabase} disabled={loading || running} title="Delete ALL Point rows from the file database. This cannot be undone." className="px-4 py-2 bg-white border border-red-300 text-red-600 hover:bg-red-50 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50">

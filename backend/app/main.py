@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports
+from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports, staging
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -40,6 +40,7 @@ app.include_router(mudryia_requests.router, prefix=f"{settings.API_V1_STR}/mudry
 app.include_router(lookups.router, prefix=f"{settings.API_V1_STR}/lookups", tags=["lookups"])
 app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications", tags=["notifications"])
 app.include_router(reports.router, prefix=f"{settings.API_V1_STR}/reports", tags=["reports"])
+app.include_router(staging.router, prefix=f"{settings.API_V1_STR}/staging", tags=["staging"])
 
 @app.get("/")
 def root():
