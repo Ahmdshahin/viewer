@@ -14,7 +14,7 @@ import TrackingBoard from "./pages/TrackingBoard";
 import LookupsAdmin from "./pages/LookupsAdmin";
 import Reports from "./pages/Reports";
 import axios from "axios";
-import { LayoutDashboard, Users, LogOut, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned, ChevronDown } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, Map as MapIcon, Database, Server, MapPin, ClipboardList, UploadCloud, KanbanSquare, ListTree, Bell, BarChart3, MapPinned, ChevronDown, Menu } from "lucide-react";
 
 function NotificationsBell() {
   const [open, setOpen] = useState(false);
@@ -174,7 +174,7 @@ function NavTabs({ pages }) {
   if (!groups.length) return null;
 
   return (
-    <nav ref={navRef} className="flex items-center gap-1 overflow-x-auto">
+    <nav ref={navRef} className="flex items-center gap-0.5">
       {groups.map((g) => {
         const active = (g.paths || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
         const isOpen = open === g.title;
@@ -182,30 +182,88 @@ function NavTabs({ pages }) {
           <div key={g.title} className="relative shrink-0">
             <button
               onClick={() => setOpen(isOpen ? null : g.title)}
-              className={"inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap " +
+              className={"inline-flex items-center gap-1 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap " +
                 (active ? "bg-white/10 text-white" : "text-slate-300 hover:text-white hover:bg-white/5")}
             >
               {g.title}
-              <ChevronDown className={"w-3.5 h-3.5 transition-transform " + (isOpen ? "rotate-180" : "")} />
+              <ChevronDown className={"w-3 h-3 transition-transform " + (isOpen ? "rotate-180" : "")} />
             </button>
             {isOpen && (
               <div className="absolute top-full mt-1 min-w-[220px] bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50">
-                {g.visible.map((i) => (
-                  <Link
-                    key={i.key}
-                    to={i.to}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-800 flex items-center transition-colors"
-                  >
-                    <i.Icon className="w-4 h-4 mr-2.5 text-gray-400" />
-                    {i.label}
-                  </Link>
-                ))}
+                <GroupLinks group={g} onNav={() => setOpen(null)} />
               </div>
             )}
           </div>
         );
       })}
     </nav>
+  );
+}
+
+function GroupLinks({ group, onNav }) {
+  return (
+    <>
+      {group.visible.map((i) => (
+        <Link
+          key={i.key}
+          to={i.to}
+          onClick={onNav}
+          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-800 flex items-center transition-colors"
+        >
+          <i.Icon className="w-4 h-4 mr-2.5 text-gray-400" />
+          {i.label}
+        </Link>
+      ))}
+    </>
+  );
+}
+
+function MobileMenu({ pages }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const groups = MENU_GROUPS.map((g) => ({ ...g, visible: g.items.filter((i) => pages.includes(i.key)) }))
+    .filter((g) => g.visible.length > 0);
+  if (!groups.length) return null;
+
+  return (
+    <div className="relative lg:hidden" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        title="Menu"
+        aria-label="Menu"
+        className="flex items-center justify-center w-9 h-9 rounded-full text-slate-200 hover:text-white hover:bg-white/10 focus:outline-none transition"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 py-1 z-50 max-h-[calc(100vh-5rem)] overflow-y-auto">
+          {groups.map((g) => (
+            <div key={g.title} className="py-1">
+              <p className="px-4 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                {g.title}
+              </p>
+              <GroupLinks group={g} onNav={() => setOpen(false)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -243,15 +301,14 @@ function TopBar({ setToken, role, pages, me }) {
         <Link to="/">GeoPortal<span className="text-blue-500">.</span></Link>
       </div>
 
-      {/* Group tabs */}
-      <div className="flex-1 flex justify-center px-2 min-w-0">
-        <NavTabs pages={pages} />
-      </div>
-
       
 
-      {/* Avatar */}
-      <div className="flex items-center">
+      {/* Tabs + icons */}
+      <div className="flex items-center gap-1">
+        <div className="hidden lg:block">
+          <NavTabs pages={pages} />
+        </div>
+        <MobileMenu pages={pages} />
         <NotificationsBell />
         <div className="relative" ref={dropdownRef}>
         <button
