@@ -870,8 +870,12 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <TextField small label="إدخال إلى" type="date" value={filters.entry_to} onChange={(v)=>{setFilters(f=>({...f,entry_to:v})); setPage(1);}} />
             <TextField small label="رفع ميدانى من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
             <TextField small label="رفع ميدانى إلى" type="date" value={filters.survey_to} onChange={(v)=>{setFilters(f=>({...f,survey_to:v})); setPage(1);}} />
-            <TextField small label="إرسال مديرية من" type="date" value={filters.directorate_from} onChange={(v)=>{setFilters(f=>({...f,directorate_from:v})); setPage(1);}} />
-            <TextField small label="إرسال مديرية إلى" type="date" value={filters.directorate_to} onChange={(v)=>{setFilters(f=>({...f,directorate_to:v})); setPage(1);}} />
+            {isMudryia && (
+              <>
+                <TextField small label="إرسال مديرية من" type="date" value={filters.directorate_from} onChange={(v)=>{setFilters(f=>({...f,directorate_from:v})); setPage(1);}} />
+                <TextField small label="إرسال مديرية إلى" type="date" value={filters.directorate_to} onChange={(v)=>{setFilters(f=>({...f,directorate_to:v})); setPage(1);}} />
+              </>
+            )}
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-start justify-between gap-2">
             <details className="flex-1 min-w-0">
