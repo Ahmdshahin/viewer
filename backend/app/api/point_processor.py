@@ -228,6 +228,70 @@ def run_pipeline(request: RunPipelineRequest, background_tasks: BackgroundTasks)
         raise HTTPException(status_code=500, detail=repr(e))
 
 
+@router.get("/browse")
+def browse_path(type: str = Query("folder"), title: str = Query("Select Path"), default_ext: str = Query("*.json")):
+    """Show a native path picker on the machine running the server.
+
+    The dialog runs in a child process so a blocked picker cannot freeze the
+    Uvicorn worker. CREATE_NO_WINDOW suppresses the console window that Windows
+    would otherwise attach to the child; the Tk dialog is a separate window and
+    is unaffected. The picker is therefore only usable by someone at the server
+    itself - a remote browser triggers the dialog on the server's desktop and
+    waits until the timeout below.
+    """
+    script = """import sys
+import tkinter as tk
+from tkinter import filedialog
+
+mode, title, default_ext = sys.argv[1], sys.argv[2], sys.argv[3]
+root = tk.Tk()
+root.attributes("-topmost", True)
+root.withdraw()
+if mode == "folder":
+    path = filedialog.askdirectory(title=title)
+elif mode == "save_file":
+    path = filedialog.asksaveasfilename(title=title, defaultextension=default_ext)
+else:
+    path = filedialog.askopenfilename(title=title)
+print(path)
+"""
+    script_path = None
+    try:
+        import tempfile
+
+        # Unique per call: two users browsing at once must not share a file.
+        fd, script_path = tempfile.mkstemp(prefix="tk_browse_point_", suffix=".py")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(script)
+
+        mode = type if type in ("folder", "save_file") else "open_file"
+        try:
+            result = subprocess.run(
+                [sys.executable, script_path, mode, title, default_ext],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(
+                status_code=408,
+                detail="Path picker timed out. It can only be used from the machine running the server - type the path instead.",
+            )
+        return {"path": (result.stdout or "").strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=repr(e))
+    finally:
+        if script_path and os.path.exists(script_path):
+            try:
+                os.unlink(script_path)
+            except OSError:
+                pass
+
+
 class DismissConflictRequest(BaseModel):
     folder: str
     reason: Optional[str] = None

@@ -13,10 +13,6 @@ backend/uvicorn*.log
 node_modules/
 frontend/dist/
 
-# Browser-upload staging (server-local pipeline data)
-staging/
-backend/staging/
-
 # Secrets & local connection overrides (contain passwords)
 .env
 *.env
