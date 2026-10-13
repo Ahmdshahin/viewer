@@ -247,8 +247,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const centerOptions = centers.filter((c) => !activeGov || c.governorate_id === activeGov.id).map((c) => c.name);
   const activeCenter = centers.find((c) => c.name === form.center);
   const villageOptions = villages.filter((v) => !activeCenter || v.center_id === activeCenter.id).map((v) => v.name);
-  const allCenterNames = uniq(centers.map((c) => c.name).filter(Boolean));
-  const allVillageNames = uniq(villages.map((v) => v.name).filter(Boolean));
+  const fGov = governorates.find((g) => g.name === filters.governorate);
+  const fGovCenters = fGov ? centers.filter((c) => c.governorate_id === fGov.id) : centers;
+  const fCenterNames = uniq(fGovCenters.map((c) => c.name).filter(Boolean));
+  const fCenter = fGovCenters.find((c) => c.name === filters.center) || centers.find((c) => c.name === filters.center);
+  const fVillageNames = uniq(villages.filter((v) => !fCenter || v.center_id === fCenter.id).map((v) => v.name).filter(Boolean));
   const allSurveyorNames = uniq((staff.staff || []).filter(Boolean));
   const allOfficeNames = uniq((staff.offices || []).filter(Boolean));
 
@@ -747,9 +750,9 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <SelectField small label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||""})); setPage(1);}} options={requestStatuses} clearable />
             <SelectField small label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||""})); setPage(1);}} options={surveyStatuses} clearable />
             <SelectField small label="وجود خريطة" value={filters.has_geometry} onChange={(v)=>{setFilters(f=>({...f,has_geometry:v||""})); setPage(1);}} options={[{value:"true",label:"يوجد"}, {value:"false",label:"لا يوجد"}]} clearable />
-            <SelectField small label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters(f=>({...f,governorate:v||""})); setPage(1);}} options={governorateNames} clearable />
-            <SelectField small label="المركز" value={filters.center} onChange={(v)=>{setFilters(f=>({...f,center:v||""})); setPage(1);}} options={allCenterNames} clearable />
-            <SelectField small label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||""})); setPage(1);}} options={allVillageNames} clearable />
+            <SelectField small label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters(f=>({...f,governorate:v||"",center:"",village:""})); setPage(1);}} options={governorateNames} clearable />
+            <SelectField small label="المركز" value={filters.center} onChange={(v)=>{setFilters(f=>({...f,center:v||"",village:""})); setPage(1);}} options={fCenterNames} clearable />
+            <SelectField small label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||""})); setPage(1);}} options={fVillageNames} clearable />
             <SelectField small label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||""})); setPage(1);}} options={allSurveyorNames} clearable />
             <SelectField small label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||""})); setPage(1);}} options={allOfficeNames} clearable />
             <TextField small label="إدخال من" type="date" value={filters.entry_from} onChange={(v)=>{setFilters(f=>({...f,entry_from:v})); setPage(1);}} />
