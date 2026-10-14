@@ -922,14 +922,31 @@ def _apply_layer_update(conn, cur, info: dict, key: str, value: str, shp_info: d
 
 def _archive(cur, action: str, table: str, key: str, value: str, old_rows: list, new_count: int,
              user=None):
-    cur.execute(
+    sql = (
         "INSERT INTO update_archive (action, layer_table, key_column, key_value, old_count, "
         "new_count, old_geojson, new_geojson, user_id, username) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, '[]'::jsonb, %s, %s) RETURNING id",
-        (action, table, key, value, len(old_rows), new_count,
-         json.dumps(old_rows, ensure_ascii=False, default=str),
-         getattr(user, "id", None), getattr(user, "username", "system")))
-    return cur.fetchone()[0]
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, '[]'::jsonb, %s, %s) RETURNING id"
+    )
+    params = (action, table, key, value, len(old_rows), new_count,
+              json.dumps(old_rows, ensure_ascii=False, default=str),
+              getattr(user, "id", None), getattr(user, "username", "system"))
+    try:
+        cur.execute("SAVEPOINT archive_ins")
+        cur.execute(sql, params)
+        new_id = cur.fetchone()[0]
+    except Exception as e:
+        # Restores/imports with explicit ids leave the id sequence behind the
+        # table: fast-forward it past max(id) and retry once (pgcode 23505).
+        if getattr(e, "pgcode", "") != "23505":
+            raise
+        cur.execute("ROLLBACK TO SAVEPOINT archive_ins")
+        cur.execute("SAVEPOINT archive_ins")
+        cur.execute("SELECT setval(pg_get_serial_sequence('update_archive', 'id'), "
+                    "(SELECT COALESCE(MAX(id), 0) FROM update_archive))")
+        cur.execute(sql, params)
+        new_id = cur.fetchone()[0]
+    cur.execute("RELEASE SAVEPOINT archive_ins")
+    return new_id
 
 
 def _write_audit(conn, table: str, action: str, key_value: str, old_count: int, new_count: int, user):
