@@ -721,6 +721,8 @@ def commit(request: CommitRequest, db: Session = Depends(deps.get_db),
     conn = _conn()
     try:
         _ensure_tables(conn)
+        for m in request.mapping:
+            _sync_id_sequence(conn, tiles.resolve_table(db, m.layer_table)["table"])
         summary = []
         for m in request.mapping:
             info = tiles.resolve_table(db, m.layer_table)
@@ -918,6 +920,28 @@ def _apply_layer_update(conn, cur, info: dict, key: str, value: str, shp_info: d
     _archive(cur, action, table, key, value, old_rows, new_count, user)
     return {"layer_table": table, "action": action, "old_count": old_count,
             "new_count": new_count, "status": "updated" if old_count else "inserted"}
+
+
+def _sync_id_sequence(conn, table: str) -> None:
+    """Fast-forward <table>'s id sequence past max(id).
+
+    Restores/imports with explicit ids leave sequences behind, which turns
+    bulk inserts into UniqueViolations. Idempotent: only moves forward.
+    Skips tables without an `id` column.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = %s AND column_name = 'id'",
+            (table,),
+        )
+        if not cur.fetchone():
+            return
+        cur.execute(
+            "SELECT setval(pg_get_serial_sequence(%s, 'id'), "
+            "(SELECT COALESCE(MAX(id), 0) FROM " + _q(table) + "))",
+            (table,),
+        )
 
 
 def _archive(cur, action: str, table: str, key: str, value: str, old_rows: list, new_count: int,
