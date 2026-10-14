@@ -1,14 +1,28 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Self-heal desynced id sequences (explicit-id restores/imports) on every
+    # boot. Must never break startup: failures only log.
+    try:
+        from app.db.init_db import ensure_sequences
+        ensure_sequences()
+    except Exception as e:
+        print(f"Sequence check skipped: {e}")
+    yield
 from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # CORS configuration

@@ -203,6 +203,63 @@ def seed_initial_lookups(db: Session = None) -> None:
             db.close()
 
 
+def ensure_sequences() -> dict:
+    """Fast-forward every owned sequence past its column max (idempotent).
+
+    Restores/imports that write explicit ids leave sequences behind, which
+    later surfaces as UniqueViolation on insert. Only moves forward; reports
+    which sequences were actually behind.
+    """
+    logger.info("Syncing owned sequences past column max values...")
+    conn = psycopg2.connect(
+        host=settings.POSTGRES_SERVER,
+        port=settings.POSTGRES_PORT,
+        user=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+        dbname=settings.POSTGRES_DB,
+    )
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    fixed = {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT n.nspname, c.relname, tn.nspname, t.relname, a.attname
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'a'
+                JOIN pg_class t ON t.oid = d.refobjid
+                JOIN pg_namespace tn ON tn.oid = t.relnamespace
+                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+                WHERE c.relkind = 'S'
+            """)
+            owned = cur.fetchall()
+            for seq_schema, seq, tbl_schema, tbl, col in owned:
+                try:
+                    cur.execute(
+                        "SELECT last_value FROM %s.%s"
+                        % (quote_ident(seq_schema, conn), quote_ident(seq, conn)))
+                    last = cur.fetchone()[0]
+                    cur.execute(
+                        "SELECT COALESCE(MAX(%s), 0) FROM %s.%s"
+                        % (quote_ident(col, conn), quote_ident(tbl_schema, conn),
+                           quote_ident(tbl, conn)))
+                    maximum = cur.fetchone()[0]
+                    if maximum is not None and last < maximum:
+                        cur.execute(
+                            "SELECT setval(%s, %s)",
+                            ("%s.%s" % (seq_schema, seq), maximum))
+                        fixed["%s.%s" % (tbl_schema, tbl)] = (last, maximum)
+                except Exception as e:
+                    logger.warning("Skipping sequence %s.%s: %s", seq_schema, seq, e)
+    finally:
+        conn.close()
+    if fixed:
+        logger.info("Sequences fast-forwarded: %s", fixed)
+    else:
+        logger.info("All sequences already in sync.")
+    return fixed
+
+
 def init_db() -> None:
     """Complete lifecycle execution for Milestone 1 database setup."""
     logger.info("=== Starting GeoPortal Database Initialization ===")
@@ -210,6 +267,7 @@ def init_db() -> None:
     enable_postgis_extension()
     create_tables_and_indexes()
     ensure_schema_columns()
+    ensure_sequences()
     seed_admin_user()
     seed_initial_lookups()
     logger.info("=== Database Initialization Completed Successfully ===")
