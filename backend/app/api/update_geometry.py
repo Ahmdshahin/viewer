@@ -17,6 +17,7 @@ import re
 import shutil
 import tempfile
 import time
+import traceback
 import uuid
 import zipfile
 from datetime import datetime, timedelta
@@ -746,11 +747,13 @@ def commit(request: CommitRequest, db: Session = Depends(deps.get_db),
                             "persist = TRUE, created_by = EXCLUDED.created_by",
                             (lt, fmode, getattr(current_user, "username", "system")))
         conn.commit()
-    except Exception:
+    except HTTPException:
         conn.rollback()
         raise
-    finally:
-        conn.close()
+    except Exception as exc:
+        conn.rollback()
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
 
     try:
         sync_base_map_from_geometry(db, value)
