@@ -1031,11 +1031,9 @@ def _allowed_request_statuses(db: Session) -> set:
 
 
 def _require_staff(r):
-    """Business rule: surveyor and office must both be chosen."""
+    """Business rule: the surveyor must be chosen."""
     if not (r.surveyor_name or "").strip():
         raise HTTPException(status_code=400, detail="يجب اختيار المساح")
-    if not (r.office_name or "").strip():
-        raise HTTPException(status_code=400, detail="يجب اختيار المكتب الفني")
 
 
 def _require_date_order(r):

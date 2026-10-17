@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, Save, History, Filter, ChevronDown, ChevronUp, MapPin, RotateCcw,
   Printer, BarChart3, X, Check, ArrowUp, ArrowDown, Bookmark, Trash2,
-  Download, UserCheck, SlidersHorizontal, Map as MapIcon,
+  Download, UserCheck, SlidersHorizontal, Map as MapIcon, Plus,
 } from "lucide-react";
 import axios from "axios";
 
@@ -244,6 +244,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const isMudryia = base.includes("mudryia");
   const [me, setMe] = useState(null);
   const canEdit = !!(me && (me.role === "admin" || me.role === "editor"));
+  const canCreate = canEdit && !!(me && (me.permissions || []).includes(isMudryia ? "mudryia_requests" : "requests"));
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState(readURLFilters);
@@ -271,6 +272,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const [villages, setVillages] = useState([]);
   const [form, setForm] = useState({});
   const [formUnits, setFormUnits] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({});
+  const [createErrs, setCreateErrs] = useState({});
+  const [createErr, setCreateErr] = useState("");
+  const [createBusy, setCreateBusy] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [stats, setStats] = useState(null);
   const [showStats, setShowStats] = useState(false);
@@ -327,7 +333,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
 
   // Escape closes drawer / create modal.
   useEffect(() => {
-    const h = (e) => { if (e.key === "Escape") { setOpen(null); } };
+    const h = (e) => { if (e.key === "Escape") { setOpen(null); setShowCreate(false); } };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
@@ -498,14 +504,15 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     }
   };
 
-  const validateForm = (f, requireNumber) => {
+  const validateForm = (f, requireNumber, opts = {}) => {
     const errs = {};
     if (requireNumber && !(f.req_number || "").toString().trim()) errs.req_number = "رقم الطلب مطلوب";
     const phone = (f.phone || "").toString().trim();
     if (phone && !/^[+\d][\d\s-]{5,}$/.test(phone)) errs.phone = "رقم هاتف غير صالح";
     if (f.area_value !== "" && f.area_value != null && !(Number(f.area_value) >= 0)) errs.area_value = "المساحة يجب أن تكون رقمًا موجبًا";
-    if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب اختيار المساح";
-    if (!(f.office || "").toString().trim()) errs.office = "يجب اختيار المكتب الفني";
+    if (opts.staff !== false) {
+      if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب اختيار المساح";
+    }
     if ((f.request_status || "") === "مقبول") {
       if (!["تم المعاينة", "تمت المعاينة", "تم المعاينه"].includes((f.survey_status || "").trim())) errs.survey_status = "يجب أن تكون تم المعاينة لقبول الطلب";
       if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب تحديد المساح لقبول الطلب";
@@ -532,6 +539,55 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       setNote({ err: e?.response?.data?.detail || "فشل الحفظ" });
     } finally {
       setSaveBusy(false);
+    }
+  };
+
+  const setC = (k, v) => setCreateForm((f) => ({ ...f, [k]: v }));
+
+  const openCreate = () => {
+    const names = uniq(staff.offices || []).filter(Boolean);
+    const uname = (me?.username || "").trim();
+    const fname = (me?.full_name || "").trim();
+    const office = names.find((n) => n === uname || n === fname) || "";
+    setCreateForm({
+      req_number: "", reqra_number: "", applicant: "", phone: "", address: "",
+      governorate: "", center: "", village: "",
+      area_value: "", area_unit: "", unit_type: "",
+      surveyor: "", office, survey_status: "", survey_date: "",
+      request_status: "جديد", entry_date: new Date().toISOString().slice(0, 10),
+    });
+    setCreateErrs({});
+    setCreateErr("");
+    setShowCreate(true);
+  };
+
+  const createRequest = async () => {
+    if (createBusy) return;
+    const errs = validateForm(createForm, true, { staff: false });
+    setCreateErrs(errs);
+    if (Object.keys(errs).length) return;
+    setCreateBusy(true);
+    setCreateErr("");
+    try {
+      const payload = {};
+      Object.keys(createForm).forEach((k) => {
+        let v = createForm[k];
+        if (v === "" || v == null) return;
+        if (k === "req_number") v = v.toString().trim();
+        if (k === "area_value") v = Number(v);
+        payload[k] = v;
+      });
+      const r = await api.post(base, payload, authH());
+      const created = r.data || r;
+      setShowCreate(false);
+      setNote({ ok: "تم إنشاء الطلب " + (created.req_number || "") });
+      await load();
+      await loadStats();
+      if (created && created.id) openDetail(created);
+    } catch (e) {
+      setCreateErr(e?.response?.data?.detail || "فشل إنشاء الطلب");
+    } finally {
+      setCreateBusy(false);
     }
   };
 
@@ -744,6 +800,10 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   };
 
   const colSpan = visibleCols.length + 1;
+  const cActiveGov = governorates.find((g) => g.name === createForm.governorate);
+  const cCenterNames = uniq(centers.filter((c) => !cActiveGov || c.governorate_id === cActiveGov.id).map((c) => c.name));
+  const cActiveCenter = centers.find((c) => c.name === createForm.center);
+  const cVillageNames = uniq(villages.filter((v) => !cActiveCenter || v.center_id === cActiveCenter.id).map((v) => v.name));
 
   return (
     <div dir="rtl" className="h-[calc(100vh-4.5rem)] flex flex-col gap-4 p-4 bg-slate-50 overflow-hidden" style={{fontFamily:"IBM Plex Sans Arabic, Cairo, Tajawal, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif", fontSize:"14px"}}>
@@ -764,6 +824,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {canCreate && (
+            <button onClick={openCreate} title="إضافة طلب جديد" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 shadow-sm">
+              <Plus className="w-4 h-4" /> طلب جديد
+            </button>
+          )}
           <button onClick={() => setShowStats((s) => !s)} title="إحصائيات" className={"inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium border shadow-sm " + (showStats ? "bg-blue-600 text-white border-blue-600" : "bg-white border-slate-200 hover:bg-slate-50")}>
             <BarChart3 className="w-4 h-4" /> إحصائيات
           </button>
@@ -1101,7 +1166,69 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             </div>
           </div>
         </div>
-      )}    </div>
+      )}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
+          <div dir="rtl" className="w-full max-w-2xl max-h-[90vh] overflow-auto bg-slate-50 rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 bg-slate-50">
+              <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
+                <Plus className="w-4 h-4 text-emerald-600" /> طلب جديد
+                <span className="text-xs font-normal text-slate-500">{title}</span>
+              </h2>
+              <button onClick={() => setShowCreate(false)} title="إغلاق" className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              {createErr && (
+                <div className="text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{createErr}</div>
+              )}
+              <FormGroup title="البيانات الأساسية">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextField label="رقم الطلب *" value={createForm.req_number} onChange={(v)=>setC("req_number",v)} err={createErrs.req_number} placeholder="مثال: 1/2026" />
+                  <TextField label="رقم التقنين" value={createForm.reqra_number} onChange={(v)=>setC("reqra_number",v)} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextField label="اسم مقدم الطلب" value={createForm.applicant} onChange={(v)=>setC("applicant",v)} />
+                  <TextField label="الهاتف" value={createForm.phone} onChange={(v)=>setC("phone",v)} err={createErrs.phone} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <SelectField label="المحافظة" value={createForm.governorate || ""} onChange={(v)=>setCreateForm(f=>({...f,governorate:v,center:null,village:null}))} options={withCurrent(governorateNames, createForm.governorate)} clearable />
+                  <SelectField label="المركز" value={createForm.center || ""} onChange={(v)=>setCreateForm(f=>({...f,center:v,village:null}))} options={withCurrent(cCenterNames, createForm.center)} clearable disabled={!createForm.governorate} />
+                  <SelectField label="القرية" value={createForm.village || ""} onChange={(v)=>setC("village",v)} options={withCurrent(cVillageNames, createForm.village)} clearable disabled={!createForm.center} />
+                </div>
+                <TextField label="العنوان" value={createForm.address} onChange={(v)=>setC("address",v)} />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <TextField label="المساحة" type="number" value={createForm.area_value} onChange={(v)=>setC("area_value",v)} err={createErrs.area_value} />
+                  <SelectField label="وحدة المساحة" value={createForm.area_unit || ""} onChange={(v)=>setC("area_unit",v)} options={withCurrent(formUnits.map((u) => u.name), createForm.area_unit)} clearable />
+                  <SelectField label="نوع الوحدة" value={createForm.unit_type || ""} onChange={(v)=>setC("unit_type",v)} options={withCurrent(unitTypes, createForm.unit_type)} clearable />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <TextField label="تاريخ الإدخال" type="date" value={createForm.entry_date} onChange={(v)=>setC("entry_date",v)} err={createErrs.entry_date} />
+                  <SelectField label="حالة الطلب" value={createForm.request_status || ""} onChange={(v)=>setC("request_status",v)} options={withCurrent(requestStatuses, createForm.request_status)} clearable />
+                </div>
+              </FormGroup>
+              <FormGroup title="المساح والمكتب الفني">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <SelectField label="المساح" value={createForm.surveyor || ""} onChange={(v)=>setC("surveyor",v)} options={withCurrent(allSurveyorNames, createForm.surveyor)} clearable err={createErrs.surveyor} />
+                  <SelectField label="المكتب الفني" value={createForm.office || ""} onChange={(v)=>setC("office",v)} options={withCurrent(allOfficeNames, createForm.office)} clearable err={createErrs.office} />
+                </div>
+              </FormGroup>
+              <FormGroup title="حالة المعاينة">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <SelectField label="حالة المعاينة" value={createForm.survey_status || ""} onChange={(v)=>setC("survey_status",v)} options={withCurrent(surveyStatuses, createForm.survey_status)} clearable err={createErrs.survey_status} />
+                  <TextField label="تاريخ المعاينة" type="date" value={createForm.survey_date || ""} onChange={(v)=>setC("survey_date",v)} />
+                </div>
+              </FormGroup>
+            </div>
+            <div className="sticky bottom-0 flex items-center gap-2 border-t border-slate-200 bg-slate-50/95 backdrop-blur px-5 py-3">
+              <button onClick={createRequest} disabled={createBusy} className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 shadow">
+                <Plus className="w-4 h-4" /> {createBusy ? "جارٍ الإنشاء..." : "إنشاء الطلب"}
+              </button>
+              <button onClick={() => setShowCreate(false)} className="px-4 py-2.5 rounded-xl text-sm font-semibold border border-slate-300 bg-white text-slate-600 hover:bg-slate-50">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
