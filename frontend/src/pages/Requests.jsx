@@ -24,6 +24,7 @@ const ALL_COLS = [
   { key: "center", label: "المركز" },
   { key: "village", label: "القرية" },
   { key: "area", label: "المساحة/الوحدة", sortKey: "area_value", align: "right" },
+  { key: "unit_type", label: "نوع الوحدة", sortKey: "unit_type" },
   { key: "surveyor", label: "المساح" },
   { key: "alt_survey_date", label: "تاريخ الرفع الميدانى", sortKey: "alt_survey_date" },
   { key: "survey_status", label: "حالة المعاينة", sortKey: "survey_status" },
@@ -32,6 +33,8 @@ const ALL_COLS = [
   { key: "entry_date", label: "تاريخ الإدخال", sortKey: "entry_date" },
   { key: "directorate_date", label: "تاريخ الإرسال للمديرية", mudryiaOnly: true },
   { key: "company", label: "الشركة" },
+  { key: "survey_comment", label: "تعليق المعاينة (المكتب الفني)" },
+  { key: "office_comment", label: "تعليق المكتب الفني" },
   { key: "geom", label: "الخريطة" },
   { key: "actions", label: "إجراءات", always: true },
 ];
@@ -221,9 +224,14 @@ function StatusBadge({ status }) {
   );
 }
 
-const EMPTY_FILTERS = { q: "", status: [], survey_status: [], has_geometry: "", governorate: [], center: [], village: [], surveyor: [], office: [], entry_from: "", entry_to: "", survey_from: "", survey_to: "", directorate_from: "", directorate_to: "", mine: false };
-const MULTI_KEYS = ["status", "survey_status", "governorate", "center", "village", "surveyor", "office"];
+const EMPTY_FILTERS = { q: "", status: [], survey_status: [], has_geometry: "", governorate: [], center: [], village: [], surveyor: [], office: [], unit_type: [], survey_comment: "", survey_comment_state: "", office_comment: "", office_comment_state: "", entry_from: "", entry_to: "", survey_from: "", survey_to: "", directorate_from: "", directorate_to: "", mine: false };
+const MULTI_KEYS = ["status", "survey_status", "governorate", "center", "village", "surveyor", "office", "unit_type"];
 const PARAM_OF = { status: "request_status", survey_status: "survey_status" };
+// "(فارغ)" matches rows whose column is NULL / blank. The token travels to
+// the backend inside the normal comma-separated list.
+const EMPTY_VALUE = "__empty__";
+const EMPTY_OPT = { value: EMPTY_VALUE, label: "(فارغ)" };
+const withEmpty = (list) => [...(list || []), EMPTY_OPT];
 
 function readURLFilters() {
   const f = { ...EMPTY_FILTERS };
@@ -320,7 +328,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       if (F.status.length) sp.set("request_status", F.status.join(","));
       if (F.survey_status.length) sp.set("survey_status", F.survey_status.join(","));
       if (F.has_geometry !== "") sp.set("has_geometry", F.has_geometry);
-      for (const k of ["governorate","center","village","surveyor","office"]) if (F[k].length) sp.set(k, F[k].join(","));
+      for (const k of ["governorate","center","village","surveyor","office","unit_type"]) if (F[k].length) sp.set(k, F[k].join(","));
+      if (F.survey_comment) sp.set("survey_comment", F.survey_comment);
+      if (F.survey_comment_state) sp.set("survey_comment_state", F.survey_comment_state);
+      if (F.office_comment) sp.set("office_comment", F.office_comment);
+      if (F.office_comment_state) sp.set("office_comment_state", F.office_comment_state);
       for (const k of ["entry_from","entry_to","survey_from","survey_to","directorate_from","directorate_to"]) if (F[k]) sp.set(k, F[k]);
       if (F.mine) sp.set("mine", "1");
       if (page > 1) sp.set("page", String(page));
@@ -355,12 +367,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const villageOptions = villages.filter((v) => !activeCenter || v.center_id === activeCenter.id).map((v) => v.name);
   const govNameById = (id) => (governorates.find((g) => g.id === id) || {}).name || "";
   const validCenterNames = (govs) => {
-    const list = govs && govs.length ? centers.filter((c) => govs.includes(govNameById(c.governorate_id))) : centers;
+    const real = (govs || []).filter((n) => n !== EMPTY_VALUE);
+    const list = real && real.length ? centers.filter((c) => real.includes(govNameById(c.governorate_id))) : centers;
     return uniq(list.map((c) => c.name).filter(Boolean));
   };
   const validVillageNames = (cens) => {
-    const ids = centers.filter((c) => cens.includes(c.name)).map((c) => c.id);
-    const list = cens && cens.length ? villages.filter((v) => ids.includes(v.center_id)) : villages;
+    const real = (cens || []).filter((n) => n !== EMPTY_VALUE);
+    const ids = centers.filter((c) => real.includes(c.name)).map((c) => c.id);
+    const list = real && real.length ? villages.filter((v) => ids.includes(v.center_id)) : villages;
     return uniq(list.map((v) => v.name).filter(Boolean));
   };
   const fCenterNames = validCenterNames(filters.governorate);
@@ -394,6 +408,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       if (filters.village.length) params.set("village", filters.village.join(","));
       if (filters.surveyor.length) params.set("surveyor", filters.surveyor.join(","));
       if (filters.office.length) params.set("office", filters.office.join(","));
+      if (filters.unit_type.length) params.set("unit_type", filters.unit_type.join(","));
+      if (filters.survey_comment) params.set("survey_comment", filters.survey_comment);
+      if (filters.survey_comment_state) params.set("survey_comment_state", filters.survey_comment_state);
+      if (filters.office_comment) params.set("office_comment", filters.office_comment);
+      if (filters.office_comment_state) params.set("office_comment_state", filters.office_comment_state);
       if (filters.entry_from) params.set("entry_from", filters.entry_from);
       if (filters.entry_to) params.set("entry_to", filters.entry_to);
       if (filters.survey_from) params.set("survey_from", filters.survey_from);
@@ -412,7 +431,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, [base, page, perPage, sort, dq, filters.status, filters.survey_status, filters.has_geometry, filters.governorate, filters.center, filters.village, filters.surveyor, filters.office, filters.entry_from, filters.entry_to, filters.survey_from, filters.survey_to, filters.mine]);
+  }, [base, page, perPage, sort, dq, filters.status, filters.survey_status, filters.has_geometry, filters.governorate, filters.center, filters.village, filters.surveyor, filters.office, filters.unit_type, filters.survey_comment, filters.survey_comment_state, filters.office_comment, filters.office_comment_state, filters.entry_from, filters.entry_to, filters.survey_from, filters.survey_to, filters.mine]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -602,6 +621,11 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     if (filters.village.length) params.set("village", filters.village.join(","));
     if (filters.surveyor.length) params.set("surveyor", filters.surveyor.join(","));
     if (filters.office.length) params.set("office", filters.office.join(","));
+    if (filters.unit_type.length) params.set("unit_type", filters.unit_type.join(","));
+    if (filters.survey_comment) params.set("survey_comment", filters.survey_comment);
+    if (filters.survey_comment_state) params.set("survey_comment_state", filters.survey_comment_state);
+    if (filters.office_comment) params.set("office_comment", filters.office_comment);
+    if (filters.office_comment_state) params.set("office_comment_state", filters.office_comment_state);
     if (filters.entry_from) params.set("entry_from", filters.entry_from);
     if (filters.entry_to) params.set("entry_to", filters.entry_to);
     if (filters.survey_from) params.set("survey_from", filters.survey_from);
@@ -771,6 +795,9 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       case "center": return <span className="text-slate-600">{r.center || "—"}</span>;
       case "village": return <span className="text-slate-600">{r.village || "—"}</span>;
       case "area": return <span className="tabular-nums" dir="ltr">{r.area_value != null ? r.area_value : "—"} {r.area_unit || ""}</span>;
+      case "unit_type": return <span className="text-slate-600">{r.unit_type || "—"}</span>;
+      case "survey_comment": return <span title={r.survey_comment || ""} className="text-slate-600 max-w-[220px] truncate block">{r.survey_comment || "—"}</span>;
+      case "office_comment": return <span title={r.office_comment || ""} className="text-slate-600 max-w-[220px] truncate block">{r.office_comment || "—"}</span>;
       case "surveyor": return <span className="text-slate-600">{r.surveyor || "—"}</span>;
       case "office": return <span className="text-slate-600">{r.office || "—"}</span>;
       case "survey_status": return <StatusBadge status={r.survey_status} />;
@@ -923,14 +950,15 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <UserCheck className="w-4 h-4" /> طلباتي
               </button>
             </div>
-            <DropField multi label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||[]})); setPage(1);}} options={requestStatuses} clearable />
-            <DropField multi label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||[]})); setPage(1);}} options={surveyStatuses} clearable />
+            <DropField multi label="حالة الطلب" value={filters.status} onChange={(v)=>{setFilters(f=>({...f,status:v||[]})); setPage(1);}} options={withEmpty(requestStatuses)} clearable />
+            <DropField multi label="حالة المعاينة" value={filters.survey_status} onChange={(v)=>{setFilters(f=>({...f,survey_status:v||[]})); setPage(1);}} options={withEmpty(surveyStatuses)} clearable />
             <DropField label="وجود خريطة" value={filters.has_geometry} onChange={(v)=>{setFilters(f=>({...f,has_geometry:v||""})); setPage(1);}} options={[{value:"true",label:"يوجد"}, {value:"false",label:"لا يوجد"}]} clearable />
-            <DropField multi label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters((f)=>{const govs=v||[];const vc=validCenterNames(govs);const nc=(f.center||[]).filter((n)=>vc.includes(n));const vv=validVillageNames(nc);return {...f,governorate:govs,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={governorateNames} clearable />
-            <DropField multi label="المركز" value={filters.center} onChange={(v)=>{setFilters((f)=>{const nc=v||[];const vv=validVillageNames(nc);return {...f,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={fCenterNames} clearable />
-            <DropField multi label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||[]})); setPage(1);}} options={fVillageNames} clearable />
-            <DropField multi label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||[]})); setPage(1);}} options={allSurveyorNames} clearable />
-            <DropField multi label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||[]})); setPage(1);}} options={allOfficeNames} clearable />
+            <DropField multi label="المحافظة" value={filters.governorate} onChange={(v)=>{setFilters((f)=>{const govs=v||[];const vc=validCenterNames(govs);const nc=(f.center||[]).filter((n)=>vc.includes(n));const vv=validVillageNames(nc);return {...f,governorate:govs,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={withEmpty(governorateNames)} clearable />
+            <DropField multi label="المركز" value={filters.center} onChange={(v)=>{setFilters((f)=>{const nc=v||[];const vv=validVillageNames(nc);return {...f,center:nc,village:(f.village||[]).filter((n)=>vv.includes(n))};}); setPage(1);}} options={withEmpty(fCenterNames)} clearable />
+            <DropField multi label="القرية" value={filters.village} onChange={(v)=>{setFilters(f=>({...f,village:v||[]})); setPage(1);}} options={withEmpty(fVillageNames)} clearable />
+            <DropField multi label="المساح" value={filters.surveyor} onChange={(v)=>{setFilters(f=>({...f,surveyor:v||[]})); setPage(1);}} options={withEmpty(allSurveyorNames)} clearable />
+            <DropField multi label="المكتب الفني" value={filters.office} onChange={(v)=>{setFilters(f=>({...f,office:v||[]})); setPage(1);}} options={withEmpty(allOfficeNames)} clearable />
+            <DropField multi label="نوع الوحدة" value={filters.unit_type} onChange={(v)=>{setFilters(f=>({...f,unit_type:v||[]})); setPage(1);}} options={withEmpty(unitTypes)} clearable />
             <TextField small label="إدخال من" type="date" value={filters.entry_from} onChange={(v)=>{setFilters(f=>({...f,entry_from:v})); setPage(1);}} />
             <TextField small label="إدخال إلى" type="date" value={filters.entry_to} onChange={(v)=>{setFilters(f=>({...f,entry_to:v})); setPage(1);}} />
             <TextField small label="رفع ميدانى من" type="date" value={filters.survey_from} onChange={(v)=>{setFilters(f=>({...f,survey_from:v})); setPage(1);}} />
@@ -941,6 +969,15 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <TextField small label="إرسال مديرية إلى" type="date" value={filters.directorate_to} onChange={(v)=>{setFilters(f=>({...f,directorate_to:v})); setPage(1);}} />
               </>
             )}
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-100">
+            <p className="text-[11px] font-semibold text-slate-500 mb-1.5">التعليقات</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <DropField label="تعليق المعاينة" value={filters.survey_comment_state} onChange={(v)=>{setFilters(f=>({...f,survey_comment_state:v||""})); setPage(1);}} options={[{value:"has",label:"يوجد تعليق"}, {value:"empty",label:"بدون تعليق"}]} clearable />
+              <TextField small label="بحث في تعليق المعاينة" value={filters.survey_comment} onChange={(v)=>{setFilters(f=>({...f,survey_comment:v})); setPage(1);}} />
+              <DropField label="تعليق المكتب الفني" value={filters.office_comment_state} onChange={(v)=>{setFilters(f=>({...f,office_comment_state:v||""})); setPage(1);}} options={[{value:"has",label:"يوجد تعليق"}, {value:"empty",label:"بدون تعليق"}]} clearable />
+              <TextField small label="بحث في تعليق المكتب الفني" value={filters.office_comment} onChange={(v)=>{setFilters(f=>({...f,office_comment:v})); setPage(1);}} />
+            </div>
           </div>
           <div className="mt-2 pt-2 border-t border-slate-100 flex items-start justify-between gap-2">
             <details className="flex-1 min-w-0">

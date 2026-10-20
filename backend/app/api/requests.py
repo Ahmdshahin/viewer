@@ -1076,6 +1076,24 @@ def _multi(value):
     return parts or None
 
 
+# Every value dropdown in the ledger offers a "(فارغ)" option so the user can
+# filter for rows whose column is NULL / blank. It travels as this reserved
+# token inside the normal comma-separated list.
+EMPTY_TOKEN = "__empty__"
+
+
+def _split_empty(value):
+    """Split a multi-value filter into (real values, wants-empty flag)."""
+    parts = _multi(value) or []
+    real = [p for p in parts if p != EMPTY_TOKEN]
+    return real, (EMPTY_TOKEN in parts)
+
+
+def _is_blank(col):
+    """SQL predicate matching NULL, empty and whitespace-only text."""
+    return func.trim(func.coalesce(col, "")) == ""
+
+
 def _apply_list_filters(query, db: Session, current_user: User, model, *,
                         q: Optional[str] = None,
                         governorate_id: Optional[int] = None,
@@ -1092,6 +1110,11 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
                         village: Optional[str] = None,
                         surveyor: Optional[str] = None,
                         office: Optional[str] = None,
+                        unit_type: Optional[str] = None,
+                        survey_comment: Optional[str] = None,
+                        survey_comment_state: Optional[str] = None,
+                        office_comment: Optional[str] = None,
+                        office_comment_state: Optional[str] = None,
                         entry_from: Optional[str] = None,
                         entry_to: Optional[str] = None,
                         survey_from: Optional[str] = None,
@@ -1126,12 +1149,24 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
         query = query.filter(model.center_id == center_id)
     if village_id is not None:
         query = query.filter(model.village_id == village_id)
-    statuses = _multi(request_status)
-    if statuses:
-        query = query.filter(model.request_status.in_(statuses))
-    surveys = _multi(survey_status)
-    if surveys:
-        query = query.filter(model.survey_status.in_(surveys))
+    # Value filters match EXACTLY (the dropdown values come from the managed
+    # lookups), and every one of them also understands the "(فارغ)" token.
+    statuses, want_empty_status = _split_empty(request_status)
+    if statuses or want_empty_status:
+        clauses = []
+        if statuses:
+            clauses.append(model.request_status.in_(statuses))
+        if want_empty_status:
+            clauses.append(_is_blank(model.request_status))
+        query = query.filter(or_(*clauses))
+    surveys, want_empty_survey = _split_empty(survey_status)
+    if surveys or want_empty_survey:
+        clauses = []
+        if surveys:
+            clauses.append(model.survey_status.in_(surveys))
+        if want_empty_survey:
+            clauses.append(_is_blank(model.survey_status))
+        query = query.filter(or_(*clauses))
     if surveyor_id is not None:
         query = query.filter(model.assigned_surveyor_id == surveyor_id)
     if office_id is not None:
@@ -1149,33 +1184,74 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
             all_reqs = [rn for (rn,) in db.query(model.req_number).all() if rn]
             query = query.filter(model.req_number.in_(
                 [rn for rn in all_reqs if rn not in geom_reqs]))
-    gov_names = _multi(governorate)
-    if gov_names:
-        gov_ids = []
-        for nm in gov_names:
-            gov_ids += [i for (i,) in db.query(Governorate.id)
-                        .filter(Governorate.name.ilike(f"%{nm}%")).all()]
-        query = query.filter(model.governorate_id.in_(gov_ids)) if gov_ids else query.filter(text("1=0"))
-    cen_names = _multi(center)
-    if cen_names:
-        cen_ids = []
-        for nm in cen_names:
-            cen_ids += [i for (i,) in db.query(Center.id)
-                        .filter(Center.name.ilike(f"%{nm}%")).all()]
-        query = query.filter(model.center_id.in_(cen_ids)) if cen_ids else query.filter(text("1=0"))
-    vil_names = _multi(village)
-    if vil_names:
-        vil_ids = []
-        for nm in vil_names:
-            vil_ids += [i for (i,) in db.query(Village.id)
-                        .filter(Village.name.ilike(f"%{nm}%")).all()]
-        query = query.filter(model.village_id.in_(vil_ids)) if vil_ids else query.filter(text("1=0"))
-    surv_names = _multi(surveyor)
-    if surv_names:
-        query = query.filter(or_(*[model.surveyor_name.ilike(f"%{nm}%") for nm in surv_names]))
-    off_names = _multi(office)
-    if off_names:
-        query = query.filter(or_(*[model.office_name.ilike(f"%{nm}%") for nm in off_names]))
+    gov_names, want_empty_gov = _split_empty(governorate)
+    if gov_names or want_empty_gov:
+        clauses = []
+        if gov_names:
+            gov_ids = [i for (i,) in db.query(Governorate.id)
+                        .filter(Governorate.name.in_(gov_names)).all()]
+            clauses.append(model.governorate_id.in_(gov_ids) if gov_ids else text("1=0"))
+        if want_empty_gov:
+            clauses.append(model.governorate_id.is_(None))
+        query = query.filter(or_(*clauses))
+    cen_names, want_empty_cen = _split_empty(center)
+    if cen_names or want_empty_cen:
+        clauses = []
+        if cen_names:
+            cen_ids = [i for (i,) in db.query(Center.id)
+                        .filter(Center.name.in_(cen_names)).all()]
+            clauses.append(model.center_id.in_(cen_ids) if cen_ids else text("1=0"))
+        if want_empty_cen:
+            clauses.append(model.center_id.is_(None))
+        query = query.filter(or_(*clauses))
+    vil_names, want_empty_vil = _split_empty(village)
+    if vil_names or want_empty_vil:
+        clauses = []
+        if vil_names:
+            vil_ids = [i for (i,) in db.query(Village.id)
+                        .filter(Village.name.in_(vil_names)).all()]
+            clauses.append(model.village_id.in_(vil_ids) if vil_ids else text("1=0"))
+        if want_empty_vil:
+            clauses.append(model.village_id.is_(None))
+        query = query.filter(or_(*clauses))
+    surv_names, want_empty_surv = _split_empty(surveyor)
+    if surv_names or want_empty_surv:
+        clauses = []
+        if surv_names:
+            clauses.append(model.surveyor_name.in_(surv_names))
+        if want_empty_surv:
+            clauses.append(_is_blank(model.surveyor_name))
+        query = query.filter(or_(*clauses))
+    off_names, want_empty_off = _split_empty(office)
+    if off_names or want_empty_off:
+        clauses = []
+        if off_names:
+            clauses.append(model.office_name.in_(off_names))
+        if want_empty_off:
+            clauses.append(_is_blank(model.office_name))
+        query = query.filter(or_(*clauses))
+    unit_types, want_empty_unit = _split_empty(unit_type)
+    if unit_types or want_empty_unit:
+        clauses = []
+        if unit_types:
+            clauses.append(model.unit_type.in_(unit_types))
+        if want_empty_unit:
+            clauses.append(_is_blank(model.unit_type))
+        query = query.filter(or_(*clauses))
+    # Comments: free-text search (partial match) and/or presence state
+    # ("has" = has a comment, "empty" = blank). Combined they AND together.
+    if survey_comment:
+        query = query.filter(model.survey_comment.ilike(f"%{survey_comment.strip()}%"))
+    if survey_comment_state == "empty":
+        query = query.filter(_is_blank(model.survey_comment))
+    elif survey_comment_state == "has":
+        query = query.filter(~_is_blank(model.survey_comment))
+    if office_comment:
+        query = query.filter(model.office_comment.ilike(f"%{office_comment.strip()}%"))
+    if office_comment_state == "empty":
+        query = query.filter(_is_blank(model.office_comment))
+    elif office_comment_state == "has":
+        query = query.filter(~_is_blank(model.office_comment))
     if entry_from:
         d = _parse_date(entry_from)
         if d:
@@ -1212,6 +1288,7 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
         "entry_date": model.entry_date,
         "survey_date": model.survey_date,
         "alt_survey_date": model.alt_survey_date,
+        "unit_type": model.unit_type,
     }
     if sort in sort_cols:
         col = sort_cols[sort]
@@ -1340,6 +1417,11 @@ def list_requests(
     village: Optional[str] = None,
     surveyor: Optional[str] = None,
     office: Optional[str] = None,
+    unit_type: Optional[str] = None,
+    survey_comment: Optional[str] = None,
+    survey_comment_state: Optional[str] = None,
+    office_comment: Optional[str] = None,
+    office_comment_state: Optional[str] = None,
     entry_from: Optional[str] = None,
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
@@ -1360,6 +1442,9 @@ def list_requests(
         assigned_to_me=assigned_to_me, has_geometry=has_geometry,
         governorate=governorate, center=center, village=village,
         surveyor=surveyor, office=office,
+        unit_type=unit_type,
+        survey_comment=survey_comment, survey_comment_state=survey_comment_state,
+        office_comment=office_comment, office_comment_state=office_comment_state,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
         directorate_from=directorate_from, directorate_to=directorate_to,
@@ -1449,6 +1534,11 @@ def export_requests_csv(
     village: Optional[str] = None,
     surveyor: Optional[str] = None,
     office: Optional[str] = None,
+    unit_type: Optional[str] = None,
+    survey_comment: Optional[str] = None,
+    survey_comment_state: Optional[str] = None,
+    office_comment: Optional[str] = None,
+    office_comment_state: Optional[str] = None,
     entry_from: Optional[str] = None,
     entry_to: Optional[str] = None,
     survey_from: Optional[str] = None,
@@ -1470,6 +1560,9 @@ def export_requests_csv(
         assigned_to_me=assigned_to_me, has_geometry=has_geometry,
         governorate=governorate, center=center, village=village,
         surveyor=surveyor, office=office,
+        unit_type=unit_type,
+        survey_comment=survey_comment, survey_comment_state=survey_comment_state,
+        office_comment=office_comment, office_comment_state=office_comment_state,
         entry_from=entry_from, entry_to=entry_to,
         survey_from=survey_from, survey_to=survey_to,
         directorate_from=directorate_from, directorate_to=directorate_to,
