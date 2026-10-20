@@ -95,6 +95,9 @@ HEADER_ALIASES = {
     "الحالة": "request_status",
     "حالة الرفع المساحى": "survey_status",
     "حالة الرفع": "survey_status",
+    # The ledger export writes the survey status with the same wording the
+    # table column uses.
+    "حالة المعاينة": "survey_status",
     # date
     "تاريخ الدخول": "entry_date",
     "تاريخ الطلب": "entry_date",
@@ -125,6 +128,11 @@ HEADER_ALIASES = {
     "تاريخ الرفغ المساحي": "survey_date",
     "تاريخ المعاينة": "survey_date",
     "تاريخ المعاينه": "survey_date",
+    # The field-upload date the ledger export writes (the table column is
+    # called "تاريخ الرفع الميدانى").
+    "تاريخ الرفع الميدانى": "alt_survey_date",
+    # The survey-side comment as the ledger export writes it.
+    "تعليق المعاينة (المكتب الفني)": "survey_comment",
     # Legacy intake exports (docs/1.csv..3.csv) name existing fields differently
     "الاسم": "applicant",
     "الشياخة / القرية": "village",
@@ -1305,6 +1313,7 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
 EXPORT_COLUMNS = (
     ("رقم الطلب", "req_number"),
     ("مقدم الطلب", "applicant"),
+    ("رقم التقنين", "reqra_number"),
     ("الهاتف", "phone"),
     ("العنوان", "address"),
     ("المساحة", "area_value"),
@@ -1313,23 +1322,22 @@ EXPORT_COLUMNS = (
     ("المحافظة", "governorate"),
     ("المركز", "center"),
     ("القرية", "village"),
-    ("المساح", "surveyor"),
-    ("المكتب الفنى", "office"),
-    ("الشركة", "company"),
-    ("الحالة الطلب", "request_status"),
-    ("حالة الرفع المساحي", "survey_status"),
-    ("تعليق المكتب الفنى", "office_comment"),
-    ("تعليق المكتب الفنى ميداني", "survey_comment"),
-    ("رقم التقنين", "reqra_number"),
-    ("تاريخ الادخال", "entry_date"),
-    ("تاريخ الرفع المساحي", "survey_date"),
-    ("تاريخ الرفع المساحى", "alt_survey_date"),
+    ("علامات مميزة", "landmarks"),
     ("تاريخ التوزيع", "distribution_date"),
+    ("تاريخ الرفع المساحي", "survey_date"),
+    ("الفريق الميدانى", "field_team"),
+    ("الشركة", "company"),
+    ("المساح", "surveyor"),
+    ("حالة المعاينة", "survey_status"),
+    ("تاريخ الرفع الميدانى", "alt_survey_date"),
+    ("تعليق المعاينة (المكتب الفني)", "survey_comment"),
+    ("المكتب الفنى", "office"),
+    ("الحالة الطلب", "request_status"),
+    ("تاريخ الادخال", "entry_date"),
+    ("تعليق المكتب الفنى", "office_comment"),
+    ("ملفات Raw", "raw_files"),
     ("تاريخ الارسال جيوديسيا", "geodesy_date"),
     ("تاريخ الارسال للمديريه", "directorate_date"),
-    ("علامات مميزة", "landmarks"),
-    ("الفريق الميدانى", "field_team"),
-    ("ملفات Raw", "raw_files"),
     ("BaseMap", "base_map"),
 )
 
