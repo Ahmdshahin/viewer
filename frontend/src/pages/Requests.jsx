@@ -231,7 +231,7 @@ const PARAM_OF = { status: "request_status", survey_status: "survey_status" };
 // the backend inside the normal comma-separated list.
 const EMPTY_VALUE = "__empty__";
 const EMPTY_OPT = { value: EMPTY_VALUE, label: "(فارغ)" };
-const withEmpty = (list) => [...(list || []), EMPTY_OPT];
+const withEmpty = (list) => [EMPTY_OPT, ...(list || [])];
 
 function readURLFilters() {
   const f = { ...EMPTY_FILTERS };
