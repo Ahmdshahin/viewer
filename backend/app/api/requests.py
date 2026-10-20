@@ -722,7 +722,8 @@ def _request_row_values(db: Session, row: dict, req_number: str, current_user: U
         "request_status": _snap_status(row.get("request_status"), REQUEST_STATUSES) or "جديد",
         "reqra_number": str(row.get("reqra_number", "") or "").strip() or None,
         # No default here: a fill must not invent an entry date the sheet did
-        # not supply. The insert paths stamp date.today() when it is missing.
+        # not supply. The sheet import stamps date.today() when it is missing;
+        # a manually added request keeps the date empty until the user sets it.
         "entry_date": _parse_date(row.get("entry_date")),
         "survey_date": _parse_date(row.get("survey_date")),
         # Columns the shared template lacks but the legacy exports carry.
@@ -1692,7 +1693,7 @@ def create_request(
         office_comment=body.office_comment,
         request_status=_snap_status(body.request_status, REQUEST_STATUSES) or "جديد",
         reqra_number=body.reqra_number,
-        entry_date=_parse_date(body.entry_date) or date.today(),
+        entry_date=_parse_date(body.entry_date),
         survey_date=_parse_date(body.survey_date),
         status_updated_at=datetime.utcnow(),
         imported_by_id=current_user.id,

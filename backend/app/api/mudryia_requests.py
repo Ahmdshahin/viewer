@@ -411,6 +411,9 @@ def create_mudryia_request(
         "entry_date": body.entry_date,
         "survey_date": body.survey_date,
     }, body.req_number, current_user)
+    # A manually added request keeps an empty entry date unless the user sets
+    # one (the sheet import still stamps today when the file has no date).
+    r.entry_date = _parse_date(body.entry_date)
     db.add(r)
     db.flush()
     _audit(db, current_user, r.id, "CREATE",

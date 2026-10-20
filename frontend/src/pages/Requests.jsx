@@ -26,15 +26,15 @@ const ALL_COLS = [
   { key: "area", label: "المساحة/الوحدة", sortKey: "area_value", align: "right" },
   { key: "unit_type", label: "نوع الوحدة", sortKey: "unit_type" },
   { key: "surveyor", label: "المساح" },
-  { key: "alt_survey_date", label: "تاريخ الرفع الميدانى", sortKey: "alt_survey_date" },
   { key: "survey_status", label: "حالة المعاينة", sortKey: "survey_status" },
+  { key: "alt_survey_date", label: "تاريخ الرفع الميدانى", sortKey: "alt_survey_date" },
+  { key: "survey_comment", label: "تعليق المعاينة (المكتب الفني)" },
   { key: "office", label: "المكتب الفني" },
   { key: "request_status", label: "حالة الطلب", sortKey: "request_status" },
   { key: "entry_date", label: "تاريخ الإدخال", sortKey: "entry_date" },
+  { key: "office_comment", label: "تعليق المكتب الفني" },
   { key: "directorate_date", label: "تاريخ الإرسال للمديرية", mudryiaOnly: true },
   { key: "company", label: "الشركة" },
-  { key: "survey_comment", label: "تعليق المعاينة (المكتب الفني)" },
-  { key: "office_comment", label: "تعليق المكتب الفني" },
   { key: "geom", label: "الخريطة" },
   { key: "actions", label: "إجراءات", always: true },
 ];
@@ -573,7 +573,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       governorate: "", center: "", village: "",
       area_value: "", area_unit: "", unit_type: "",
       surveyor: "", office, survey_status: "", survey_date: "",
-      request_status: "جديد", entry_date: new Date().toISOString().slice(0, 10),
+      request_status: "جديد", entry_date: "",
     });
     setCreateErrs({});
     setCreateErr("");
