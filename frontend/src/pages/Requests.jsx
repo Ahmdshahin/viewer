@@ -232,6 +232,12 @@ const PARAM_OF = { status: "request_status", survey_status: "survey_status" };
 const EMPTY_VALUE = "__empty__";
 const EMPTY_OPT = { value: EMPTY_VALUE, label: "(فارغ)" };
 const withEmpty = (list) => [EMPTY_OPT, ...(list || [])];
+// Staff dropdowns in the request form: the same "(فارغ)" option as the
+// filters, so a request can explicitly carry no surveyor / no office.
+const staffOptions = (list, cur) => [
+  EMPTY_OPT,
+  ...withCurrent(list, cur === EMPTY_VALUE ? "" : cur),
+];
 
 function readURLFilters() {
   const f = { ...EMPTY_FILTERS };
@@ -523,18 +529,18 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     }
   };
 
-  const validateForm = (f, requireNumber, opts = {}) => {
+  const validateForm = (f, requireNumber) => {
     const errs = {};
+    // "(فارغ)" is an explicit "no value" for the staff fields, so it never
+    // counts as a chosen surveyor.
+    const surveyorName = (f.surveyor === EMPTY_VALUE ? "" : (f.surveyor || "")).toString().trim();
     if (requireNumber && !(f.req_number || "").toString().trim()) errs.req_number = "رقم الطلب مطلوب";
     const phone = (f.phone || "").toString().trim();
     if (phone && !/^[+\d][\d\s-]{5,}$/.test(phone)) errs.phone = "رقم هاتف غير صالح";
     if (f.area_value !== "" && f.area_value != null && !(Number(f.area_value) >= 0)) errs.area_value = "المساحة يجب أن تكون رقمًا موجبًا";
-    if (opts.staff !== false) {
-      if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب اختيار المساح";
-    }
     if ((f.request_status || "") === "مقبول") {
       if (!["تم المعاينة", "تمت المعاينة", "تم المعاينه"].includes((f.survey_status || "").trim())) errs.survey_status = "يجب أن تكون تم المعاينة لقبول الطلب";
-      if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب تحديد المساح لقبول الطلب";
+      if (!surveyorName) errs.surveyor = "يجب تحديد المساح لقبول الطلب";
       if (!(f.entry_date || "").toString().trim()) errs.entry_date = "تاريخ الإدخال فاضي — لا يمكن حفظ الطلب كـ«مقبول» قبل إدخاله";
     }
     if (f.geodesy_date && f.alt_survey_date && f.geodesy_date < f.alt_survey_date) errs.geodesy_date = "يجب أن يكون بعد تاريخ الرفع الميدانى";
@@ -549,7 +555,12 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     setSaveBusy(true);
     setNote(null);
     try {
-      await api.patch(base + "/" + detail.id, form, authH());
+      // "(فارغ)" is sent as an empty string, which is what clears the column
+      // (and releases the assignee) on the server.
+      const payload = { ...form };
+      if (payload.surveyor === EMPTY_VALUE) payload.surveyor = "";
+      if (payload.office === EMPTY_VALUE) payload.office = "";
+      await api.patch(base + "/" + detail.id, payload, authH());
       setNote({ ok: "تم الحفظ بنجاح" });
       await openDetail(detail);
       await load();
@@ -582,7 +593,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
 
   const createRequest = async () => {
     if (createBusy) return;
-    const errs = validateForm(createForm, true, { staff: false });
+    const errs = validateForm(createForm, true);
     setCreateErrs(errs);
     if (Object.keys(errs).length) return;
     setCreateBusy(true);
@@ -592,6 +603,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       Object.keys(createForm).forEach((k) => {
         let v = createForm[k];
         if (v === "" || v == null) return;
+        if (v === EMPTY_VALUE) return; // "(فارغ)" = leave the field empty
         if (k === "req_number") v = v.toString().trim();
         if (k === "area_value") v = Number(v);
         payload[k] = v;
@@ -1130,7 +1142,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                     </div>
                   </FormGroup>
                   <FormGroup title="بيانات المعاينة">
-                    <SelectField label="المساح" value={form.surveyor} onChange={(v)=>setF("surveyor",v)} options={withCurrent(uniq(staff.staff), form.surveyor)} clearable err={formErrs.surveyor} />
+                    <SelectField label="المساح" value={form.surveyor || ""} onChange={(v)=>setF("surveyor",v)} options={staffOptions(uniq(staff.staff), form.surveyor)} clearable err={formErrs.surveyor} />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectField label="حالة المعاينة" value={form.survey_status || ""} onChange={(v)=>setF("survey_status",v)} options={withCurrent(surveyStatuses, form.survey_status)} clearable err={formErrs.survey_status} />
                       <TextField label="تاريخ الرفع الميدانى" type="date" value={form.alt_survey_date} onChange={(v)=>setF("alt_survey_date",v)} />
@@ -1141,7 +1153,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                     </div>
                   </FormGroup>
                   <FormGroup title="بيانات المكتب الفني">
-                    <SelectField label="المكتب الفني" value={form.office} onChange={(v)=>setF("office",v)} options={withCurrent(uniq(staff.offices), form.office)} clearable err={formErrs.office} />
+                    <SelectField label="المكتب الفني" value={form.office || ""} onChange={(v)=>setF("office",v)} options={staffOptions(uniq(staff.offices), form.office)} clearable err={formErrs.office} />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectField label="حالة ملفات Raw" value={form.raw_files} onChange={(v)=>setF("raw_files",v)} options={withCurrent(uniq(staff.rawStatuses), form.raw_files)} clearable />
                       <TextField label="تاريخ الإرسال الجيوديسي" type="date" value={form.geodesy_date} onChange={(v)=>setF("geodesy_date",v)} err={formErrs.geodesy_date} />
@@ -1249,8 +1261,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               </FormGroup>
               <FormGroup title="المساح والمكتب الفني">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <SelectField label="المساح" value={createForm.surveyor || ""} onChange={(v)=>setC("surveyor",v)} options={withCurrent(allSurveyorNames, createForm.surveyor)} clearable err={createErrs.surveyor} />
-                  <SelectField label="المكتب الفني" value={createForm.office || ""} onChange={(v)=>setC("office",v)} options={withCurrent(allOfficeNames, createForm.office)} clearable err={createErrs.office} />
+                  <SelectField label="المساح" value={createForm.surveyor || ""} onChange={(v)=>setC("surveyor",v)} options={staffOptions(allSurveyorNames, createForm.surveyor)} clearable err={createErrs.surveyor} />
+                  <SelectField label="المكتب الفني" value={createForm.office || ""} onChange={(v)=>setC("office",v)} options={staffOptions(allOfficeNames, createForm.office)} clearable err={createErrs.office} />
                 </div>
               </FormGroup>
               <FormGroup title="حالة المعاينة">

@@ -1040,12 +1040,6 @@ def _allowed_request_statuses(db: Session) -> set:
     return set(REQUEST_STATUSES)
 
 
-def _require_staff(r):
-    """Business rule: the surveyor must be chosen."""
-    if not (r.surveyor_name or "").strip():
-        raise HTTPException(status_code=400, detail="يجب اختيار المساح")
-
-
 def _require_date_order(r):
     """Business rule: geodesy send date must not precede the field survey date."""
     if r.geodesy_date and r.alt_survey_date and r.geodesy_date < r.alt_survey_date:
@@ -1883,7 +1877,6 @@ def update_request(
 
     _require_acceptable(r)
     _require_date_order(r)
-    _require_staff(r)
     if changes:
         _claim_if_unassigned(r, changes, current_user)
         _audit(db, current_user, r.id, "UPDATE", old=old, new={**old, **changes})

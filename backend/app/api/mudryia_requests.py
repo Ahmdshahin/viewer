@@ -44,7 +44,6 @@ from app.api.requests import (
     _notify_user,
     _require_acceptable,
     _require_date_order,
-    _require_staff,
     _parse_date,
     _parse_number,
     _parse_req_codes,
@@ -569,7 +568,6 @@ def update_mudryia_request(
 
     _require_acceptable(r)
     _require_date_order(r)
-    _require_staff(r)
     if changes:
         _claim_if_unassigned(r, changes, current_user)
         _audit(db, current_user, r.id, "UPDATE", old=old, new={**old, **changes})
