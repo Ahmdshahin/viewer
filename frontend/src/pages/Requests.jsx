@@ -535,7 +535,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     if ((f.request_status || "") === "مقبول") {
       if (!["تم المعاينة", "تمت المعاينة", "تم المعاينه"].includes((f.survey_status || "").trim())) errs.survey_status = "يجب أن تكون تم المعاينة لقبول الطلب";
       if (!(f.surveyor || "").toString().trim()) errs.surveyor = "يجب تحديد المساح لقبول الطلب";
-      if (!(f.entry_date || "").toString().trim()) errs.entry_date = "يجب إدخال تاريخ الإدخال لقبول الطلب";
+      if (!(f.entry_date || "").toString().trim()) errs.entry_date = "تاريخ الإدخال فاضي — لا يمكن حفظ الطلب كـ«مقبول» قبل إدخاله";
     }
     if (f.geodesy_date && f.alt_survey_date && f.geodesy_date < f.alt_survey_date) errs.geodesy_date = "يجب أن يكون بعد تاريخ الرفع الميدانى";
     return errs;
@@ -637,18 +637,22 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     return params;
   };
 
-  const exportCsv = async (ids) => {
+  // The ledger exports a styled .xlsx (coloured header, frozen and filterable
+  // columns, real dates). `fmt=csv` is still available on the endpoint.
+  const exportExcel = async (ids) => {
     if (exportBusy) return;
     setExportBusy(true);
     setNote(null);
     try {
       const params = ids ? new URLSearchParams({ ids: ids.join(",") }) : buildFilterParams();
+      params.set("fmt", "xlsx");
       const r = await api.get(base + "/export?" + params.toString(), { ...authH(), responseType: "blob" });
       const url = URL.createObjectURL(r.data);
       const a = document.createElement("a");
       a.href = url;
-      const stamp = new Date().toISOString().slice(0, 10);
-      a.download = (title.replace(/\s+/g, "_")) + "_" + stamp + (ids ? "_selected" : "") + ".csv";
+      const now = new Date();
+      const stamp = now.toISOString().slice(0, 10) + "_" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+      a.download = (title.replace(/\s+/g, "_")) + "_" + stamp + (ids ? "_selected" : "") + ".xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -862,8 +866,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           <button onClick={showOnMap} disabled={!rows.length} title="عرض نتائج الصفحة على الخريطة" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 shadow-sm disabled:opacity-40">
             <MapIcon className="w-4 h-4" /> على الخريطة
           </button>
-          <button onClick={() => exportCsv()} disabled={exportBusy} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 shadow-sm disabled:opacity-50">
-            <Download className="w-4 h-4" /> {exportBusy ? "جارٍ التصدير..." : "تصدير"}
+          <button onClick={() => exportExcel()} disabled={exportBusy} title="تصدير Excel منسّق" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 shadow-sm disabled:opacity-50">
+            <Download className="w-4 h-4" /> {exportBusy ? "جارٍ التصدير..." : "تصدير Excel"}
           </button>
           <button onClick={() => setShowFilters(s=>!s)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 shadow-sm">
             <Filter className="w-4 h-4" />
@@ -935,7 +939,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
             </>
           )}
-          <button onClick={() => exportCsv(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
+          <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
             <Download className="w-3.5 h-3.5" /> تصدير المحدد
           </button>
           <button onClick={() => setSel({})} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5">إلغاء التحديد</button>
@@ -1128,7 +1132,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <FormGroup title="بيانات المعاينة">
                     <SelectField label="المساح" value={form.surveyor} onChange={(v)=>setF("surveyor",v)} options={withCurrent(uniq(staff.staff), form.surveyor)} clearable err={formErrs.surveyor} />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <SelectField label="حالة المعاينة" value={form.survey_status || ""} onChange={(v)=>{setF("survey_status",v); if(v) setF("alt_survey_date", new Date().toISOString().slice(0,10));}} options={withCurrent(surveyStatuses, form.survey_status)} clearable err={formErrs.survey_status} />
+                      <SelectField label="حالة المعاينة" value={form.survey_status || ""} onChange={(v)=>setF("survey_status",v)} options={withCurrent(surveyStatuses, form.survey_status)} clearable err={formErrs.survey_status} />
                       <TextField label="تاريخ الرفع الميدانى" type="date" value={form.alt_survey_date} onChange={(v)=>setF("alt_survey_date",v)} />
                     </div>
                     <div>

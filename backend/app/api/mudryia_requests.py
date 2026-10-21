@@ -14,11 +14,12 @@ import json
 from datetime import datetime, date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 from app.api import deps
+from app.api.xlsx_export import applied_filters
 from app.api.requests import (
     ACCEPTED_SURVEY_STATUSES,
     BulkAssignIn,
@@ -36,6 +37,7 @@ from app.api.requests import (
     _claim_if_unassigned,
     _csv_attachment,
     _export_table,
+    _xlsx_attachment,
     _find_gov_by_code,
     _fill_request_from_sheet_row,
     _notify_all,
@@ -275,10 +277,11 @@ def export_mudryia_requests_csv(
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
+    fmt: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user),
 ):
-    """Download every mudryia request matching the list filters as a CSV sheet."""
+    """Download every mudryia request matching the list filters as a styled Excel sheet."""
     query = _apply_list_filters(
         db.query(MudryiaRequest), db, current_user, MudryiaRequest,
         q=q, governorate_id=governorate_id, center_id=center_id, village_id=village_id,
@@ -298,7 +301,17 @@ def export_mudryia_requests_csv(
     )
     items = query.all()
     headers, rows = _export_table(db, items)
-    return _csv_attachment(headers, rows, "requests_mudryia")
+    if fmt == "csv":
+        return _csv_attachment(headers, rows, "requests_mudryia")
+    scope = locals()
+    meta = {
+        "title": "تصدير طلبات المديريات",
+        "rows": len(rows),
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "filters": applied_filters(scope),
+        "note": "الملف منسّق وجاهز للفتح في Excel، وعناوينه مضبوطة للاستيراد من صفحة الاستيراد.",
+    }
+    return _xlsx_attachment(headers, rows, "requests_mudryia", meta=meta)
 
 
 @router.get("/import-template")

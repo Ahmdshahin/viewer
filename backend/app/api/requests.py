@@ -11,14 +11,15 @@ import json
 import math
 import re
 from datetime import datetime, date, timedelta
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.api import deps
+from app.api.xlsx_export import applied_filters
 from app.db.models import (
     AreaUnit, CadastralRequest, Center, Governorate, LookupValue, Notification,
     CANONICAL_SURVEY_STATUSES, REQUEST_STATUSES, SURVEY_STATUS_ALIASES,
@@ -1060,7 +1061,7 @@ def _require_acceptable(r):
     if not (r.surveyor_name or "").strip():
         raise HTTPException(status_code=400, detail="لا يمكن قبول الطلب بدون تحديد المساح")
     if not r.entry_date:
-        raise HTTPException(status_code=400, detail="لا يمكن قبول الطلب بدون تاريخ الإدخال")
+        raise HTTPException(status_code=400, detail="تاريخ الإدخال فاضي: لا يمكن قبول الطلب قبل إدخاله")
 
 
 def _notify_user(db: Session, user_id: Optional[int], ntype: str, title: str,
@@ -1340,21 +1341,22 @@ EXPORT_COLUMNS = (
     ("تاريخ الارسال للمديريه", "directorate_date"),
     ("BaseMap", "base_map"),
 )
+# The field key behind each exported column, so the Excel writer knows which
+# columns are dates, numbers, text or a status.
+EXPORT_KEYS = [key for _, key in EXPORT_COLUMNS]
 
 
 def _export_table(db: Session, items) -> tuple:
-    """Table rows for EXPORT_COLUMNS — names resolved via bulk id->name maps."""
+    """Table rows for EXPORT_COLUMNS — names resolved via bulk id->name maps.
+
+    The values are returned raw (dates as date objects, None for an empty
+    cell) so each output format can render them its own way: the Excel
+    writer wants real dates, the CSV writer wants ISO strings.
+    """
     gov_map = {g.id: g.name for g in db.query(Governorate).all()}
     cen_map = {c.id: c.name for c in db.query(Center).all()}
     vil_map = {v.id: v.name for v in db.query(Village).all()}
     unit_map = {u.id: u.name for u in db.query(AreaUnit).all()}
-
-    def cell(v):
-        if v is None:
-            return ""
-        if isinstance(v, (datetime, date)):
-            return v.isoformat()
-        return v
 
     rows = []
     for r in items:
@@ -1388,22 +1390,43 @@ def _export_table(db: Session, items) -> tuple:
             "raw_files": r.raw_files,
             "base_map": r.base_map,
         }
-        rows.append([cell(vals.get(key)) for _, key in EXPORT_COLUMNS])
+        rows.append([vals.get(key) for _, key in EXPORT_COLUMNS])
     return [head for head, _ in EXPORT_COLUMNS], rows
 
 
 def _csv_attachment(headers, rows, stem: str):
     """UTF-8-sig CSV download (opens cleanly in Excel), timestamped filename."""
+    def cell(v):
+        if v is None:
+            return ""
+        if isinstance(v, (datetime, date)):
+            return v.isoformat()
+        return v
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(headers)
-    writer.writerows(rows)
+    for r in rows:
+        writer.writerow([cell(v) for v in r])
     data = ("\ufeff" + buf.getvalue()).encode("utf-8")
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     return StreamingResponse(
         io.BytesIO(data),
         headers={"Content-Disposition": f'attachment; filename="{stem}_{stamp}.csv"'},
         media_type="text/csv; charset=utf-8",
+    )
+
+
+def _xlsx_attachment(headers, rows, stem: str, meta: dict = None):
+    """Styled .xlsx download of the ledger export."""
+    from app.api.xlsx_export import build_ledger_workbook
+
+    data = build_ledger_workbook(headers, rows, EXPORT_KEYS, meta=meta)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{stem}_{stamp}.xlsx"'},
     )
 
 
@@ -1557,10 +1580,11 @@ def export_requests_csv(
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     ids: Optional[str] = None,
+    fmt: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user),
 ):
-    """Download every request matching the list filters as a CSV sheet."""
+    """Download every request matching the list filters as a styled Excel sheet."""
     query = _apply_list_filters(
         db.query(CadastralRequest), db, current_user, CadastralRequest,
         q=q, governorate_id=governorate_id, center_id=center_id, village_id=village_id,
@@ -1579,7 +1603,17 @@ def export_requests_csv(
     )
     items = query.all()
     headers, rows = _export_table(db, items)
-    return _csv_attachment(headers, rows, "requests_company")
+    if fmt == "csv":
+        return _csv_attachment(headers, rows, "requests_company")
+    scope = locals()
+    meta = {
+        "title": "تصدير طلبات الشركات",
+        "rows": len(rows),
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "filters": applied_filters(scope),
+        "note": "الملف منسّق وجاهز للفتح في Excel، وعناوينه مضبوطة للاستيراد من صفحة الاستيراد.",
+    }
+    return _xlsx_attachment(headers, rows, "requests_company", meta=meta)
 
 
 @router.get("/import-template")
