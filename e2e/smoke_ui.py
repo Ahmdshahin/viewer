@@ -106,6 +106,8 @@ def main() -> int:
             report["bulk_bar"] = {
                 "survey_status": bar.locator("select[title='حالة المعاينة']").count(),
                 "office_comment": bar.locator("input[placeholder='تعليق المكتب الفني']").count(),
+                "entry_date_neighbour": bar.locator("input[placeholder='تعليق المكتب الفني']").evaluate(
+                    "el => el.closest('div').nextElementSibling?.querySelector('input[type=date]') ? 1 : 0"),
                 "transition_comment": bar.locator("input[placeholder='تعليق تغيير الحالة...']").count(),
                 "dates": bar.locator("input[type=date]").count(),
                 "apply": bar.get_by_role("button", name="تحديث الحقول").count(),
@@ -143,7 +145,8 @@ def main() -> int:
         problems.append("export did not download an .xlsx")
     bulk = report.get("bulk_bar")
     if bulk and (bulk["survey_status"] != 1 or bulk["office_comment"] != 1
-                 or bulk["transition_comment"] != 0 or bulk["dates"] != 2 or bulk["apply"] != 1):
+                 or bulk["entry_date_neighbour"] != 1 or bulk["transition_comment"] != 0
+                 or bulk["dates"] != 2 or bulk["apply"] != 1):
         problems.append(f"bulk toolbar incomplete: {bulk}")
 
     print("RESULT:", "PASS" if not problems else "FAIL")

@@ -1024,6 +1024,8 @@ class BulkTransitionIn(BaseModel):
     comment: Optional[str] = None
     office_comment: Optional[str] = None
     clear_office_comment: bool = False
+    entry_date: Optional[str] = None
+    clear_entry_date: bool = False
 
 
 class BulkFieldsIn(BaseModel):
@@ -1988,10 +1990,10 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
 
 def _apply_bulk_transition(db: Session, model, link_prefix: str, body: BulkTransitionIn,
                            current_user: User) -> int:
-    """Move many rows to one status and optionally set/clear their office comment.
+    """Move many rows to one status, optionally setting their office comment and entry date.
 
-    A row counts as updated when its status or its office comment changes; rows
-    already in the requested state with the same note are skipped.
+    A row counts as updated when its status, office comment, or entry date
+    changes; rows already in the requested state are skipped.
     """
     ids = [i for i in (body.ids or []) if isinstance(i, int) and i > 0][:2000]
     if not ids:
@@ -2004,16 +2006,33 @@ def _apply_bulk_transition(db: Session, model, link_prefix: str, body: BulkTrans
     clear_office = bool(body.clear_office_comment)
     if office_note and clear_office:
         raise HTTPException(status_code=400, detail="لا يمكن تعيين تعليق المكتب الفني ومسحه معاً")
+    entry, entry_set = None, False
+    if body.entry_date is not None and str(body.entry_date).strip():
+        entry = _parse_date(body.entry_date)
+        if entry is None:
+            raise HTTPException(status_code=400, detail=f"تاريخ غير صالح: {body.entry_date}")
+        entry_set = True
+    clear_entry = bool(body.clear_entry_date)
+    if entry_set and clear_entry:
+        raise HTTPException(status_code=400, detail="لا يمكن تعيين تاريخ الإدخال ومسحه معاً")
     rows = db.query(model).filter(model.id.in_(ids)).all()
     if target == "مقبول":
+        def effective_entry(r):
+            if clear_entry:
+                return None
+            return entry if entry_set else r.entry_date
         bad = [r.req_number for r in rows
                if r.request_status != target
                and ((r.survey_status or "").strip() not in ACCEPTED_SURVEY_STATUSES
                     or not (r.surveyor_name or "").strip()
-                    or not r.entry_date)]
+                    or not effective_entry(r))]
         if bad:
             raise HTTPException(status_code=400, detail=f"{len(bad)} طلب لا يستوفي شروط القبول (تم المعاينة + مساح + تاريخ الإدخال)")
-    updated = 0
+
+    def journal(value):
+        return value.isoformat() if isinstance(value, (date, datetime)) else value
+
+    updated, problems = 0, []
     for r in rows:
         old_values, new_values = {}, {}
         status_changed = r.request_status != target
@@ -2031,8 +2050,26 @@ def _apply_bulk_transition(db: Session, model, link_prefix: str, body: BulkTrans
             old_values["office_comment"] = r.office_comment
             r.office_comment = office_note
             new_values["office_comment"] = office_note
+        entry_changed = False
+        if clear_entry:
+            if r.entry_date is not None:
+                old_values["entry_date"] = journal(r.entry_date)
+                r.entry_date = None
+                new_values["entry_date"] = None
+                entry_changed = True
+        elif entry_set and r.entry_date != entry:
+            old_values["entry_date"] = journal(r.entry_date)
+            r.entry_date = entry
+            new_values["entry_date"] = journal(entry)
+            entry_changed = True
         if not new_values:
             continue
+        if entry_changed:
+            try:
+                _require_acceptable(r)
+            except HTTPException as exc:
+                problems.append(f"{r.req_number}: {exc.detail}")
+                continue
         new_values["req_number"] = r.req_number
         if comment:
             new_values["comment"] = comment
@@ -2046,6 +2083,11 @@ def _apply_bulk_transition(db: Session, model, link_prefix: str, body: BulkTrans
                              comment or office_note or f"بواسطة {current_user.username}",
                              link_req=f"{link_prefix}:{r.req_number}")
         updated += 1
+    if problems:
+        db.rollback()
+        head = "، ".join(problems[:4])
+        more = f" (و{len(problems) - 4} غيرها)" if len(problems) > 4 else ""
+        raise HTTPException(status_code=400, detail="لم يتم التعديل — " + head + more)
     db.commit()
     return updated
 

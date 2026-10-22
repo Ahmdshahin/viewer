@@ -733,12 +733,16 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       const payload = { ids: selIds, to: bulkTo };
       if (bulkClearOffice) payload.clear_office_comment = true;
       else if (bulkOfficeComment.trim()) payload.office_comment = bulkOfficeComment.trim();
+      if (bulkClearEntry) payload.clear_entry_date = true;
+      else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
       const r = await api.post(base + "/bulk-transition", payload, authH());
       setNote({ ok: `تم تغيير حالة ${r.data?.updated ?? selIds.length} طلب` });
       setSel({});
       setBulkTo("");
       setBulkOfficeComment("");
       setBulkClearOffice(false);
+      setBulkEntryDate("");
+      setBulkClearEntry(false);
       await load();
       await loadStats();
     } catch (e) {
@@ -758,10 +762,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     else if (bulkSurveyComment.trim()) payload.survey_comment = bulkSurveyComment.trim();
     if (bulkClearAlt) clear.push("alt_survey_date");
     else if (bulkAltDate) payload.alt_survey_date = bulkAltDate;
-    if (bulkClearEntry) clear.push("entry_date");
-    else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
     if (clear.length) payload.clear = clear;
-    if (!payload.survey_status && !payload.survey_comment && !payload.alt_survey_date && !payload.entry_date && !clear.length) return;
+    if (!payload.survey_status && !payload.survey_comment && !payload.alt_survey_date && !clear.length) return;
     setBulkBusy(true);
     setNote(null);
     try {
@@ -773,8 +775,6 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       setBulkClearComment(false);
       setBulkAltDate("");
       setBulkClearAlt(false);
-      setBulkEntryDate("");
-      setBulkClearEntry(false);
       await load();
       await loadStats();
     } catch (e) {
@@ -976,6 +976,13 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
+              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearEntry ? "ring-2 ring-red-300" : "")}>
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الإدخال</span>
+                <input type="date" value={bulkEntryDate} disabled={bulkClearEntry} onChange={(e) => setBulkEntryDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
+                <button onClick={() => setBulkClearEntry((v) => !v)} title={bulkClearEntry ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearEntry ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
               <span className="w-px h-6 bg-white/30" />
               <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
@@ -997,14 +1004,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearEntry ? "ring-2 ring-red-300" : "")}>
-                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الإدخال</span>
-                <input type="date" value={bulkEntryDate} disabled={bulkClearEntry} onChange={(e) => setBulkEntryDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
-                <button onClick={() => setBulkClearEntry((v) => !v)} title={bulkClearEntry ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearEntry ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يطبق حالة المعاينة وتعليقها والتواريخ">تحديث الحقول</button>
+              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkAltDate || bulkClearAlt)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يطبق حالة المعاينة وتعليقها وتاريخ الرفع">تحديث الحقول</button>
             </>
           )}
           <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
