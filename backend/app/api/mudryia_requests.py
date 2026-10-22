@@ -21,13 +21,13 @@ from sqlalchemy.orm import Session
 from app.api import deps
 from app.api.xlsx_export import applied_filters
 from app.api.requests import (
-    ACCEPTED_SURVEY_STATUSES,
     BulkAssignIn,
     BulkFieldsIn,
     BulkTransitionIn,
     RequestCreate,
     _allowed_request_statuses,
     _apply_bulk_fields,
+    _apply_bulk_transition,
     RequestUpdate,
     TransitionIn,
     _apply_list_filters,
@@ -668,44 +668,8 @@ def bulk_transition_mudryia_requests(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_editor),
 ):
-    """Move many mudryia requests to one status, with an optional shared comment."""
-    ids = [i for i in (body.ids or []) if isinstance(i, int) and i > 0][:2000]
-    if not ids:
-        raise HTTPException(status_code=400, detail="No request ids provided")
-    target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
-        raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
-    comment = (body.comment or "").strip() or None
-    rows = db.query(MudryiaRequest).filter(MudryiaRequest.id.in_(ids)).all()
-    if target == "مقبول":
-        bad = [r.req_number for r in rows
-               if r.request_status != target
-               and ((r.survey_status or "").strip() not in ACCEPTED_SURVEY_STATUSES
-                    or not (r.surveyor_name or "").strip()
-                    or not r.entry_date)]
-        if bad:
-            raise HTTPException(status_code=400, detail=f"{len(bad)} طلب لا يستوفي شروط القبول (تم المعاينة + مساح + تاريخ الإدخال)")
-    updated = 0
-    for r in rows:
-        if r.request_status == target:
-            continue
-        old = r.request_status
-        r.request_status = target
-        r.status_updated_at = datetime.utcnow()
-        new_values = {"req_number": r.req_number, "request_status": target}
-        if comment:
-            new_values["comment"] = comment
-        _claim_if_unassigned(r, new_values, current_user)
-        _audit(db, current_user, r.id, "TRANSITION", old={"request_status": old}, new=new_values)
-        assignee = r.assigned_surveyor_id or r.assigned_office_id
-        if assignee and assignee != current_user.id:
-            _notify_user(db, assignee, "transition",
-                         f"تغيّرت حالة الطلب {r.req_number} إلى {target}",
-                         comment or f"بواسطة {current_user.username}",
-                         link_req=f"mudryia:{r.req_number}")
-        updated += 1
-    db.commit()
-    return {"updated": updated}
+    """Move many mudryia requests to one status, optionally updating تعليق المكتب الفني."""
+    return {"updated": _apply_bulk_transition(db, MudryiaRequest, "mudryia", body, current_user)}
 
 
 @router.post("/bulk-fields")

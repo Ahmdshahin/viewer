@@ -274,7 +274,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const [bulkSurveyor, setBulkSurveyor] = useState("");
   const [bulkOffice, setBulkOffice] = useState("");
   const [bulkTo, setBulkTo] = useState("");
-  const [bulkComment, setBulkComment] = useState("");
+  const [bulkOfficeComment, setBulkOfficeComment] = useState("");
+  const [bulkClearOffice, setBulkClearOffice] = useState(false);
   const [bulkSurveyStatus, setBulkSurveyStatus] = useState("");
   const [bulkSurveyComment, setBulkSurveyComment] = useState("");
   const [bulkClearComment, setBulkClearComment] = useState(false);
@@ -729,11 +730,15 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     setBulkBusy(true);
     setNote(null);
     try {
-      const r = await api.post(base + "/bulk-transition", { ids: selIds, to: bulkTo, comment: bulkComment || null }, authH());
+      const payload = { ids: selIds, to: bulkTo };
+      if (bulkClearOffice) payload.clear_office_comment = true;
+      else if (bulkOfficeComment.trim()) payload.office_comment = bulkOfficeComment.trim();
+      const r = await api.post(base + "/bulk-transition", payload, authH());
       setNote({ ok: `تم تغيير حالة ${r.data?.updated ?? selIds.length} طلب` });
       setSel({});
       setBulkTo("");
-      setBulkComment("");
+      setBulkOfficeComment("");
+      setBulkClearOffice(false);
       await load();
       await loadStats();
     } catch (e) {
@@ -965,6 +970,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <option value="">حالة...</option>
                 {requestStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
+              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearOffice ? "ring-2 ring-red-300" : "")}>
+                <input value={bulkOfficeComment} disabled={bulkClearOffice} onChange={(e) => setBulkOfficeComment(e.target.value)} placeholder="تعليق المكتب الفني" title="تعليق المكتب الفني" className="text-xs text-slate-800 bg-transparent min-w-[170px] disabled:opacity-40" />
+                <button onClick={() => setBulkClearOffice((v) => !v)} title={bulkClearOffice ? "إلغاء المسح" : "مسح تعليق المكتب الفني"} className={"p-0.5 rounded " + (bulkClearOffice ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
+              <span className="w-px h-6 bg-white/30" />
               <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
                 <option value="">حالة المعاينة...</option>
                 <option value="__clear__">— مسح —</option>
@@ -976,9 +989,6 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <span className="w-px h-6 bg-white/30" />
-              <input value={bulkComment} onChange={(e) => setBulkComment(e.target.value)} placeholder="تعليق تغيير الحالة..." className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]" />
-              <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
               <span className="w-px h-6 bg-white/30" />
               <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
                 <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>

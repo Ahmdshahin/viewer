@@ -1022,6 +1022,8 @@ class BulkTransitionIn(BaseModel):
     ids: List[int]
     to: str
     comment: Optional[str] = None
+    office_comment: Optional[str] = None
+    clear_office_comment: bool = False
 
 
 class BulkFieldsIn(BaseModel):
@@ -1984,6 +1986,70 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
     return changed
 
 
+def _apply_bulk_transition(db: Session, model, link_prefix: str, body: BulkTransitionIn,
+                           current_user: User) -> int:
+    """Move many rows to one status and optionally set/clear their office comment.
+
+    A row counts as updated when its status or its office comment changes; rows
+    already in the requested state with the same note are skipped.
+    """
+    ids = [i for i in (body.ids or []) if isinstance(i, int) and i > 0][:2000]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No request ids provided")
+    target = (body.to or "").strip()
+    if target not in _allowed_request_statuses(db):
+        raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
+    comment = (body.comment or "").strip() or None
+    office_note = (body.office_comment or "").strip() or None
+    clear_office = bool(body.clear_office_comment)
+    if office_note and clear_office:
+        raise HTTPException(status_code=400, detail="لا يمكن تعيين تعليق المكتب الفني ومسحه معاً")
+    rows = db.query(model).filter(model.id.in_(ids)).all()
+    if target == "مقبول":
+        bad = [r.req_number for r in rows
+               if r.request_status != target
+               and ((r.survey_status or "").strip() not in ACCEPTED_SURVEY_STATUSES
+                    or not (r.surveyor_name or "").strip()
+                    or not r.entry_date)]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"{len(bad)} طلب لا يستوفي شروط القبول (تم المعاينة + مساح + تاريخ الإدخال)")
+    updated = 0
+    for r in rows:
+        old_values, new_values = {}, {}
+        status_changed = r.request_status != target
+        if status_changed:
+            old_values["request_status"] = r.request_status
+            r.request_status = target
+            r.status_updated_at = datetime.utcnow()
+            new_values["request_status"] = target
+        if clear_office:
+            if r.office_comment is not None:
+                old_values["office_comment"] = r.office_comment
+                r.office_comment = None
+                new_values["office_comment"] = None
+        elif office_note is not None and r.office_comment != office_note:
+            old_values["office_comment"] = r.office_comment
+            r.office_comment = office_note
+            new_values["office_comment"] = office_note
+        if not new_values:
+            continue
+        new_values["req_number"] = r.req_number
+        if comment:
+            new_values["comment"] = comment
+        _claim_if_unassigned(r, new_values, current_user)
+        _audit(db, current_user, r.id, "TRANSITION", old=old_values or None, new=new_values)
+        if status_changed:
+            assignee = r.assigned_surveyor_id or r.assigned_office_id
+            if assignee and assignee != current_user.id:
+                _notify_user(db, assignee, "transition",
+                             f"تغيّرت حالة الطلب {r.req_number} إلى {target}",
+                             comment or office_note or f"بواسطة {current_user.username}",
+                             link_req=f"{link_prefix}:{r.req_number}")
+        updated += 1
+    db.commit()
+    return updated
+
+
 @router.post("/bulk-assign")
 def bulk_assign_requests(
     body: BulkAssignIn,
@@ -2033,44 +2099,8 @@ def bulk_transition_requests(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_editor),
 ):
-    """Move many requests to one status, with an optional shared comment."""
-    ids = [i for i in (body.ids or []) if isinstance(i, int) and i > 0][:2000]
-    if not ids:
-        raise HTTPException(status_code=400, detail="No request ids provided")
-    target = (body.to or "").strip()
-    if target not in _allowed_request_statuses(db):
-        raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target}")
-    comment = (body.comment or "").strip() or None
-    rows = db.query(CadastralRequest).filter(CadastralRequest.id.in_(ids)).all()
-    if target == "مقبول":
-        bad = [r.req_number for r in rows
-               if r.request_status != target
-               and ((r.survey_status or "").strip() not in ACCEPTED_SURVEY_STATUSES
-                    or not (r.surveyor_name or "").strip()
-                    or not r.entry_date)]
-        if bad:
-            raise HTTPException(status_code=400, detail=f"{len(bad)} طلب لا يستوفي شروط القبول (تم المعاينة + مساح + تاريخ الإدخال)")
-    updated = 0
-    for r in rows:
-        if r.request_status == target:
-            continue
-        old = r.request_status
-        r.request_status = target
-        r.status_updated_at = datetime.utcnow()
-        new_values = {"req_number": r.req_number, "request_status": target}
-        if comment:
-            new_values["comment"] = comment
-        _claim_if_unassigned(r, new_values, current_user)
-        _audit(db, current_user, r.id, "TRANSITION", old={"request_status": old}, new=new_values)
-        assignee = r.assigned_surveyor_id or r.assigned_office_id
-        if assignee and assignee != current_user.id:
-            _notify_user(db, assignee, "transition",
-                         f"تغيّرت حالة الطلب {r.req_number} إلى {target}",
-                         comment or f"بواسطة {current_user.username}",
-                         link_req=f"company:{r.req_number}")
-        updated += 1
-    db.commit()
-    return {"updated": updated}
+    """Move many requests to one status, optionally updating تعليق المكتب الفني."""
+    return {"updated": _apply_bulk_transition(db, CadastralRequest, "company", body, current_user)}
 
 
 @router.post("/bulk-fields")
