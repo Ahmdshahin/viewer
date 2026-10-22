@@ -27,12 +27,25 @@ html, body, #root {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes mv-row {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mv-slide {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .mv-fade-in { animation: mv-fade 0.2s ease-out both; }
 .mv-rise-in { animation: mv-rise 0.24s ease-out both; }
 .mv-pop-in { animation: mv-pop 0.18s ease-out both; }
 .mv-bar-in { animation: mv-bar 0.22s ease-out both; }
+.mv-row-in { animation: mv-row 0.22s ease-out both; }
+.mv-slide-in { animation: mv-slide 0.24s ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
-  .mv-fade-in, .mv-rise-in, .mv-pop-in, .mv-bar-in { animation: none; }
+  .mv-fade-in, .mv-rise-in, .mv-pop-in, .mv-bar-in,
+  .mv-row-in, .mv-slide-in { animation: none; }
 }
 

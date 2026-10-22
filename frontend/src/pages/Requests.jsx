@@ -170,6 +170,39 @@ const api = axios;
 function uniq(arr) { return Array.from(new Set((arr||[]).filter(x=>x!=null && x!==""))); }
 function withCurrent(list, cur) { const s=new Set(list); if(cur!=null&&cur!=="") s.add(cur); return Array.from(s); }
 
+function useCountUp(value, duration = 500) {
+  const target = Number(value || 0);
+  const [display, setDisplay] = useState(target);
+  const displayRef = useRef(target);
+  useEffect(() => {
+    const from = displayRef.current;
+    if (from === target) return;
+    let raf;
+    const t0 = performance.now();
+    const tick = (t) => {
+      const p = Math.min(1, (t - t0) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const v = Math.round(from + (target - from) * eased);
+      displayRef.current = v;
+      setDisplay(v);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return display;
+}
+
+function StatCard({ label, value }) {
+  const display = useCountUp(value);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-sm">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="text-lg font-bold text-slate-800 tabular-nums">{display.toLocaleString("en-US")}</div>
+    </div>
+  );
+}
+
 function StatusBadge({ status }) {
   const st = (status || "").trim();
   const map = {
@@ -904,7 +937,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {canCreate && (
-            <button onClick={openCreate} title="إضافة طلب جديد" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 shadow-sm">
+            <button onClick={openCreate} title="إضافة طلب جديد" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white border border-emerald-600 hover:bg-emerald-700 shadow-sm transition active:scale-95">
               <Plus className="w-4 h-4" /> طلب جديد
             </button>
           )}
@@ -914,7 +947,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           <button onClick={showOnMap} disabled={!rows.length} title="عرض نتائج الصفحة على الخريطة" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 shadow-sm disabled:opacity-40">
             <MapIcon className="w-4 h-4" /> على الخريطة
           </button>
-          <button onClick={() => exportExcel()} disabled={exportBusy} title="تصدير Excel منسّق" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 shadow-sm disabled:opacity-50">
+            <button onClick={() => exportExcel()} disabled={exportBusy} title="تصدير Excel منسّق" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 shadow-sm disabled:opacity-50 transition active:scale-95">
             <Download className="w-4 h-4" /> {exportBusy ? "جارٍ التصدير..." : "تصدير Excel"}
           </button>
           <button onClick={() => setShowFilters(s=>!s)} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 shadow-sm">
@@ -935,12 +968,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               ["مقبول اليوم", stats.accepted_today],
               ["مرفوض اليوم", stats.rejected_today],
               ["أُدخل اليوم", stats.today_imported],
-            ].map(([label, v]) => (
-              <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className="text-[11px] text-slate-500">{label}</div>
-                <div className="text-lg font-bold text-slate-800 tabular-nums">{Number(v || 0).toLocaleString("en-US")}</div>
-              </div>
-            ))}
+            ].map(([label, v]) => <StatCard key={label} label={label} value={v} />)}
           </div>
           <div className="mt-3 flex flex-wrap gap-2 items-center">
             <span className="text-[11px] font-semibold text-slate-500">حسب الحالة:</span>
@@ -1026,13 +1054,13 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               </div>
             </>
           )}
-          <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
+          <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1 transition active:scale-95">
             <Download className="w-3.5 h-3.5" /> تصدير المحدد
           </button>
           {canEdit && (
-            <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
+            <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40 transition active:scale-95" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
           )}
-          <button onClick={() => setSel({})} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5">إلغاء التحديد</button>
+          <button onClick={() => setSel({})} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 transition active:scale-95">إلغاء التحديد</button>
         </div>
       )}
 
@@ -1136,8 +1164,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} onClick={() => openDetail(r)} className={"border-b border-slate-100 hover:bg-blue-50/70 cursor-pointer transition-colors " + (open && open.id === r.id ? "bg-blue-50" : "") + (sel[r.id] ? " bg-blue-50/60" : "")}>
+            {rows.map((r, i) => (
+              <tr key={r.id} onClick={() => openDetail(r)} style={i < 12 ? { animationDelay: `${i * 18}ms` } : undefined} className={"border-b border-slate-100 hover:bg-blue-50/70 cursor-pointer transition-colors " + (open && open.id === r.id ? "bg-blue-50" : "") + (sel[r.id] ? " bg-blue-50/60" : "") + (i < 12 ? " mv-row-in" : "")}>
                 <td className={cellPad} onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={!!sel[r.id]} onChange={() => setSel((s) => ({ ...s, [r.id]: !s[r.id] }))} className="accent-blue-600" />
                 </td>
@@ -1163,14 +1191,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <option value={200}>200</option>
             <option value={500}>500</option>
           </select>
-          <button onClick={()=>setPage(Math.max(1, page-1))} disabled={page <= 1} className="px-3 py-1 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">السابق</button>
+          <button onClick={()=>setPage(Math.max(1, page-1))} disabled={page <= 1} className="px-3 py-1 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition active:scale-95">السابق</button>
           <span className="text-xs text-slate-500">صفحة {page} من {Math.max(pages, 1)}</span>
-          <button onClick={()=>setPage(Math.min(pages, page+1))} disabled={page >= pages} className="px-3 py-1 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">التالي</button>
+          <button onClick={()=>setPage(Math.min(pages, page+1))} disabled={page >= pages} className="px-3 py-1 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition active:scale-95">التالي</button>
         </div>
       </div>
       {open && (
         <div className="fixed inset-x-0 bottom-0 top-16 bg-black/50 z-40 flex items-start justify-end mv-fade-in" onClick={() => setOpen(null)}>
-          <div className="w-full max-w-xl h-full bg-slate-50 shadow-2xl overflow-auto rounded-l-2xl mv-pop-in" dir="rtl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-xl h-full bg-slate-50 shadow-2xl overflow-auto rounded-l-2xl mv-slide-in" dir="rtl" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap sticky top-0 bg-slate-50 py-2 z-10 border-b border-slate-200">
                 <h2 className="text-base font-semibold text-slate-800">تفاصيل الطلب {detail ? <span className="font-mono text-xs text-blue-700 font-normal">{detail.req_number}</span> : null}</h2>
