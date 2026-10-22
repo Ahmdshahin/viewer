@@ -886,12 +886,12 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
 
   return (
     <div dir="rtl" className="h-[calc(100vh-4.5rem)] flex flex-col gap-4 p-4 bg-slate-50 overflow-hidden" style={{fontFamily:"IBM Plex Sans Arabic, Cairo, Tajawal, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif", fontSize:"14px"}}>
-      <div className="flex-none flex items-center justify-between flex-wrap gap-2">
+      <div className="flex-none flex items-center justify-between flex-wrap gap-2 mv-fade-in">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-slate-800">{title}</h1>
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-200/70 text-slate-700 border border-slate-300">{dataTotal || rows.length}</span>
           {loading && <span className="text-xs text-blue-600 animate-pulse">جاري التحميل...</span>}
-          {note && <span className={"text-xs font-medium " + (note.ok ? "text-emerald-600" : "text-red-600")}>{note.ok || note.err}</span>}
+          {note && <span key={note.ok || note.err} className={"text-xs font-medium mv-fade-in " + (note.ok ? "text-emerald-600" : "text-red-600")}>{note.ok || note.err}</span>}
         </div>
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -926,7 +926,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       </div>
 
       {showStats && stats && (
-        <div className="flex-none bg-white rounded-xl shadow-sm border border-slate-200/70 p-4">
+        <div className="flex-none bg-white rounded-xl shadow-sm border border-slate-200/70 p-4 mv-rise-in">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {[
               ["الإجمالي", stats.total],
@@ -964,8 +964,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       )}
 
       {selIds.length > 0 && (
-        <div className="flex-none bg-blue-600 text-white rounded-xl shadow-sm px-4 py-2.5 flex items-end gap-3 flex-wrap">
-          <span title="عدد الطلبات المحددة" className="w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{selIds.length}</span>
+        <div className="flex-none bg-blue-600 text-white rounded-xl shadow-sm px-4 py-2.5 flex items-end gap-3 flex-wrap mv-bar-in">
+          <span key={selIds.length} title="عدد الطلبات المحددة" className="w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0 mv-pop-in">{selIds.length}</span>
           {canEdit && (
             <>
               <div className="flex flex-col gap-1">
@@ -1037,7 +1037,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       )}
 
       {showFilters && (
-        <div className="flex-none bg-white rounded-xl shadow-sm border border-slate-200/70 p-3">
+        <div className="flex-none bg-white rounded-xl shadow-sm border border-slate-200/70 p-3 mv-rise-in">
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
             <div className="flex items-end">
               <button onClick={() => { setFilters((f) => ({ ...f, mine: !f.mine })); setPage(1); }} className={"w-full justify-center inline-flex items-center gap-2 px-2 py-1 rounded-lg text-xs font-medium border shadow-sm " + (filters.mine ? "bg-blue-600 text-white border-blue-600" : "bg-white border-slate-200 hover:bg-slate-50")}>
@@ -1116,7 +1116,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           </div>
         </div>
       )}
-      <div className="flex-1 min-h-0 overflow-auto bg-white rounded-xl shadow-sm border border-slate-200/70">
+      <div className="flex-1 min-h-0 overflow-auto bg-white rounded-xl shadow-sm border border-slate-200/70 mv-fade-in">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-slate-600 text-xs sticky top-0 z-10">
             <tr>
@@ -1169,8 +1169,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         </div>
       </div>
       {open && (
-        <div className="fixed inset-x-0 bottom-0 top-16 bg-black/50 z-40 flex items-start justify-end" onClick={() => setOpen(null)}>
-          <div className="w-full max-w-xl h-full bg-slate-50 shadow-2xl overflow-auto rounded-l-2xl" dir="rtl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-x-0 bottom-0 top-16 bg-black/50 z-40 flex items-start justify-end mv-fade-in" onClick={() => setOpen(null)}>
+          <div className="w-full max-w-xl h-full bg-slate-50 shadow-2xl overflow-auto rounded-l-2xl mv-pop-in" dir="rtl" onClick={(e) => e.stopPropagation()}>
             <div className="p-5 space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap sticky top-0 bg-slate-50 py-2 z-10 border-b border-slate-200">
                 <h2 className="text-base font-semibold text-slate-800">تفاصيل الطلب {detail ? <span className="font-mono text-xs text-blue-700 font-normal">{detail.req_number}</span> : null}</h2>
@@ -1299,8 +1299,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
         </div>
       )}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowCreate(false)}>
-          <div dir="rtl" className="w-full max-w-2xl max-h-[90vh] overflow-auto bg-slate-50 rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 mv-fade-in" onClick={() => setShowCreate(false)}>
+          <div dir="rtl" className="w-full max-w-2xl max-h-[90vh] overflow-auto bg-slate-50 rounded-2xl shadow-2xl mv-pop-in" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 bg-slate-50">
               <h2 className="flex items-center gap-2 text-base font-semibold text-slate-800">
                 <Plus className="w-4 h-4 text-emerald-600" /> طلب جديد
