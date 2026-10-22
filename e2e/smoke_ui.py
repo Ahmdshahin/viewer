@@ -112,6 +112,7 @@ def main() -> int:
             report["bulk_bar"] = {
                 "survey_group": bar.get_by_text("بيانات المعاينة", exact=True).count(),
                 "office_group": bar.get_by_text("بيانات المكتب الفنى", exact=True).count(),
+                "count_badge": bar.locator("span[title='عدد الطلبات المحددة']").inner_text(),
                 "survey_status": bar.locator("select[title='حالة المعاينة']").count(),
                 "office_comment": bar.locator("input[placeholder='تعليق المكتب الفني']").count(),
                 "entry_date_neighbour": bar.locator("input[placeholder='تعليق المكتب الفني']").evaluate(
@@ -162,6 +163,7 @@ def main() -> int:
                  or bulk["entry_date_neighbour"] != 1 or bulk["transition_comment"] != 0
                    or bulk["assign_btn"] != 0 or bulk["transition_btn"] != 0
                    or bulk["survey_group"] != 1 or bulk["office_group"] != 1
+                   or bulk["count_badge"] != "1"
                    or bulk["dates"] != 2 or bulk["apply"] != 1):
         problems.append(f"bulk toolbar incomplete: {bulk}")
 

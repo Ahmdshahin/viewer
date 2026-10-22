@@ -952,54 +952,62 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
 
       {selIds.length > 0 && (
         <div className="flex-none bg-blue-600 text-white rounded-xl shadow-sm px-4 py-2.5 flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-semibold">تم تحديد {selIds.length} طلب</span>
+          <span title="عدد الطلبات المحددة" className="w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{selIds.length}</span>
           {canEdit && (
             <>
-              <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المعاينة</span>
-              <select value={bulkSurveyor} onChange={(e) => setBulkSurveyor(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
-                <option value="">مساح...</option>
-                {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-              <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
-                <option value="">حالة المعاينة...</option>
-                <option value="__clear__">— مسح —</option>
-                {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
-                <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
-                <button onClick={() => setBulkClearComment((v) => !v)} title={bulkClearComment ? "إلغاء المسح" : "مسح التعليق"} className={"p-0.5 rounded " + (bulkClearComment ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المعاينة</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={bulkSurveyor} onChange={(e) => setBulkSurveyor(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
+                    <option value="">مساح...</option>
+                    {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
+                    <option value="">حالة المعاينة...</option>
+                    <option value="__clear__">— مسح —</option>
+                    {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
+                    <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
+                    <button onClick={() => setBulkClearComment((v) => !v)} title={bulkClearComment ? "إلغاء المسح" : "مسح التعليق"} className={"p-0.5 rounded " + (bulkClearComment ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>
+                    <input type="date" value={bulkAltDate} disabled={bulkClearAlt} onChange={(e) => setBulkAltDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
+                    <button onClick={() => setBulkClearAlt((v) => !v)} title={bulkClearAlt ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearAlt ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
-                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>
-                <input type="date" value={bulkAltDate} disabled={bulkClearAlt} onChange={(e) => setBulkAltDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
-                <button onClick={() => setBulkClearAlt((v) => !v)} title={bulkClearAlt ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearAlt ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <span className="w-px h-6 bg-white/30" />
-              <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المكتب الفنى</span>
-              <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
-                <option value="">مكتب...</option>
-                {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-              <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
-                <option value="">حالة...</option>
-                {withCurrent(requestStatuses, bulkTo).map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearOffice ? "ring-2 ring-red-300" : "")}>
-                <input value={bulkOfficeComment} disabled={bulkClearOffice} onChange={(e) => setBulkOfficeComment(e.target.value)} placeholder="تعليق المكتب الفني" title="تعليق المكتب الفني" className="text-xs text-slate-800 bg-transparent min-w-[170px] disabled:opacity-40" />
-                <button onClick={() => setBulkClearOffice((v) => !v)} title={bulkClearOffice ? "إلغاء المسح" : "مسح تعليق المكتب الفني"} className={"p-0.5 rounded " + (bulkClearOffice ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearEntry ? "ring-2 ring-red-300" : "")}>
-                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الإدخال</span>
-                <input type="date" value={bulkEntryDate} disabled={bulkClearEntry} onChange={(e) => setBulkEntryDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
-                <button onClick={() => setBulkClearEntry((v) => !v)} title={bulkClearEntry ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearEntry ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
+              <span className="self-stretch w-px bg-white/30" />
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المكتب الفنى</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
+                    <option value="">مكتب...</option>
+                    {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
+                    <option value="">حالة...</option>
+                    {withCurrent(requestStatuses, bulkTo).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearOffice ? "ring-2 ring-red-300" : "")}>
+                    <input value={bulkOfficeComment} disabled={bulkClearOffice} onChange={(e) => setBulkOfficeComment(e.target.value)} placeholder="تعليق المكتب الفني" title="تعليق المكتب الفني" className="text-xs text-slate-800 bg-transparent min-w-[170px] disabled:opacity-40" />
+                    <button onClick={() => setBulkClearOffice((v) => !v)} title={bulkClearOffice ? "إلغاء المسح" : "مسح تعليق المكتب الفني"} className={"p-0.5 rounded " + (bulkClearOffice ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearEntry ? "ring-2 ring-red-300" : "")}>
+                    <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الإدخال</span>
+                    <input type="date" value={bulkEntryDate} disabled={bulkClearEntry} onChange={(e) => setBulkEntryDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
+                    <button onClick={() => setBulkClearEntry((v) => !v)} title={bulkClearEntry ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearEntry ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
               </div>
               <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
             </>
