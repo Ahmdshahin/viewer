@@ -955,6 +955,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
           <span className="text-sm font-semibold">تم تحديد {selIds.length} طلب</span>
           {canEdit && (
             <>
+              <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المعاينة</span>
               <select value={bulkSurveyor} onChange={(e) => setBulkSurveyor(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">مساح...</option>
                 {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
@@ -978,6 +979,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 </button>
               </div>
               <span className="w-px h-6 bg-white/30" />
+              <span className="text-[10px] font-semibold text-white/80 whitespace-nowrap">بيانات المكتب الفنى</span>
               <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">مكتب...</option>
                 {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}

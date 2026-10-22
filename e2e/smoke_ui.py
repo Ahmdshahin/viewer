@@ -110,6 +110,8 @@ def main() -> int:
             page.wait_for_timeout(500)
             bar = page.locator("div.bg-blue-600").first
             report["bulk_bar"] = {
+                "survey_group": bar.get_by_text("بيانات المعاينة", exact=True).count(),
+                "office_group": bar.get_by_text("بيانات المكتب الفنى", exact=True).count(),
                 "survey_status": bar.locator("select[title='حالة المعاينة']").count(),
                 "office_comment": bar.locator("input[placeholder='تعليق المكتب الفني']").count(),
                 "entry_date_neighbour": bar.locator("input[placeholder='تعليق المكتب الفني']").evaluate(
@@ -158,8 +160,9 @@ def main() -> int:
     bulk = report.get("bulk_bar")
     if bulk and (bulk["survey_status"] != 1 or bulk["office_comment"] != 1
                  or bulk["entry_date_neighbour"] != 1 or bulk["transition_comment"] != 0
-                 or bulk["assign_btn"] != 0 or bulk["transition_btn"] != 0
-                 or bulk["dates"] != 2 or bulk["apply"] != 1):
+                   or bulk["assign_btn"] != 0 or bulk["transition_btn"] != 0
+                   or bulk["survey_group"] != 1 or bulk["office_group"] != 1
+                   or bulk["dates"] != 2 or bulk["apply"] != 1):
         problems.append(f"bulk toolbar incomplete: {bulk}")
 
     print("RESULT:", "PASS" if not problems else "FAIL")
