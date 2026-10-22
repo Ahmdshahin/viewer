@@ -21,7 +21,7 @@ REM --- backend
 start "MapViewer API" cmd /c "cd /d %ROOT%backend && %ROOT%venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload > %LOGS%\backend.log 2>&1"
 
 REM --- frontend
-start "MapViewer UI" cmd /c "cd /d %ROOT%frontend && C:\Program Files\nodejs\npm.cmd run dev > %LOGS%\frontend.log 2>&1"
+start "MapViewer UI" cmd /c "cd /d %ROOT%frontend && npm run dev > %LOGS%\frontend.log 2>&1"
 
 echo Waiting for the dev stack...
 for /l %%i in (1,1,60) do (
