@@ -706,75 +706,43 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     } catch (e) { /* ignore */ }
   };
 
-  const bulkAssign = async () => {
-    if (!selIds.length || (!bulkSurveyor && !bulkOffice) || bulkBusy) return;
-    setBulkBusy(true);
-    setNote(null);
-    try {
-      const r = await api.post(base + "/bulk-assign", { ids: selIds, surveyor: bulkSurveyor || null, office: bulkOffice || null }, authH());
-      setNote({ ok: `تم إسناد ${r.data?.updated ?? selIds.length} طلب` });
-      setSel({});
-      setBulkSurveyor("");
-      setBulkOffice("");
-      await load();
-      await loadStats();
-    } catch (e) {
-      setNote({ err: e?.response?.data?.detail || "فشل الإسناد" });
-    } finally {
-      setBulkBusy(false);
-    }
-  };
-
-  const bulkTransition = async () => {
-    if (!selIds.length || !bulkTo || bulkBusy) return;
-    setBulkBusy(true);
-    setNote(null);
-    try {
-      const payload = { ids: selIds, to: bulkTo };
-      if (bulkClearOffice) payload.clear_office_comment = true;
-      else if (bulkOfficeComment.trim()) payload.office_comment = bulkOfficeComment.trim();
-      if (bulkClearEntry) payload.clear_entry_date = true;
-      else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
-      const r = await api.post(base + "/bulk-transition", payload, authH());
-      setNote({ ok: `تم تغيير حالة ${r.data?.updated ?? selIds.length} طلب` });
-      setSel({});
-      setBulkTo("");
-      setBulkOfficeComment("");
-      setBulkClearOffice(false);
-      setBulkEntryDate("");
-      setBulkClearEntry(false);
-      await load();
-      await loadStats();
-    } catch (e) {
-      setNote({ err: e?.response?.data?.detail || "فشل تغيير الحالة" });
-    } finally {
-      setBulkBusy(false);
-    }
-  };
-
   const bulkFields = async () => {
     if (!selIds.length || bulkBusy) return;
     const payload = { ids: selIds };
     const clear = [];
+    if (bulkSurveyor) payload.surveyor = bulkSurveyor;
+    if (bulkOffice) payload.office = bulkOffice;
+    if (bulkTo) payload.request_status = bulkTo;
     if (bulkSurveyStatus === "__clear__") clear.push("survey_status");
     else if (bulkSurveyStatus) payload.survey_status = bulkSurveyStatus;
     if (bulkClearComment) clear.push("survey_comment");
     else if (bulkSurveyComment.trim()) payload.survey_comment = bulkSurveyComment.trim();
+    if (bulkClearOffice) clear.push("office_comment");
+    else if (bulkOfficeComment.trim()) payload.office_comment = bulkOfficeComment.trim();
     if (bulkClearAlt) clear.push("alt_survey_date");
     else if (bulkAltDate) payload.alt_survey_date = bulkAltDate;
+    if (bulkClearEntry) clear.push("entry_date");
+    else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
     if (clear.length) payload.clear = clear;
-    if (!payload.survey_status && !payload.survey_comment && !payload.alt_survey_date && !clear.length) return;
+    if (Object.keys(payload).length === 1) return;
     setBulkBusy(true);
     setNote(null);
     try {
       const r = await api.post(base + "/bulk-fields", payload, authH());
       setNote({ ok: `تم تحديث ${r.data?.updated ?? selIds.length} طلب` });
       setSel({});
+      setBulkSurveyor("");
+      setBulkOffice("");
+      setBulkTo("");
       setBulkSurveyStatus("");
       setBulkSurveyComment("");
       setBulkClearComment(false);
+      setBulkOfficeComment("");
+      setBulkClearOffice(false);
       setBulkAltDate("");
       setBulkClearAlt(false);
+      setBulkEntryDate("");
+      setBulkClearEntry(false);
       await load();
       await loadStats();
     } catch (e) {
@@ -963,9 +931,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <option value="">مكتب...</option>
                 {allOfficeNames.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <button onClick={bulkAssign} disabled={bulkBusy || (!bulkSurveyor && !bulkOffice)} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5" /> إسناد
-              </button>
+              <span className="w-px h-6 bg-white/30" />
               <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">حالة...</option>
                 {requestStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -983,7 +949,6 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
               <span className="w-px h-6 bg-white/30" />
               <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
                 <option value="">حالة المعاينة...</option>
@@ -1004,7 +969,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkAltDate || bulkClearAlt)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يطبق حالة المعاينة وتعليقها وتاريخ الرفع">تحديث الحقول</button>
+              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
             </>
           )}
           <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">

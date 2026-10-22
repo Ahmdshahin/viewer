@@ -1030,6 +1030,10 @@ class BulkTransitionIn(BaseModel):
 
 class BulkFieldsIn(BaseModel):
     ids: List[int]
+    surveyor: Optional[str] = None
+    office: Optional[str] = None
+    request_status: Optional[str] = None
+    office_comment: Optional[str] = None
     survey_status: Optional[str] = None
     survey_comment: Optional[str] = None
     alt_survey_date: Optional[str] = None
@@ -1908,13 +1912,15 @@ def transition_request(
 BULK_FIELD_LABELS = {
     "survey_status": "حالة المعاينة",
     "survey_comment": "تعليق المعاينة (المكتب الفني)",
+    "office_comment": "تعليق المكتب الفني",
     "alt_survey_date": "تاريخ الرفع الميدانى",
     "entry_date": "تاريخ الإدخال",
 }
 
 
-def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: User) -> int:
-    """Apply survey_status / alt_survey_date / entry_date to many rows.
+def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: User,
+                       link_prefix: str = "company") -> int:
+    """Apply the given fields to many rows; omitted fields are left untouched.
 
     The batch is all-or-nothing: every touched row is re-validated against the
     acceptance and date-order rules, and a single violation rolls the whole
@@ -1925,6 +1931,13 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
         raise HTTPException(status_code=400, detail="No request ids provided")
 
     clear = {name for name in (body.clear or []) if name in BULK_FIELD_LABELS}
+    surveyor = (body.surveyor or "").strip() or None
+    office = (body.office or "").strip() or None
+    target_status = (body.request_status or "").strip() or None
+    if target_status is not None and target_status not in _allowed_request_statuses(db):
+        raise HTTPException(status_code=400, detail=f"حالة غير صالحة: {target_status}")
+    s_id = _resolve_person(db, surveyor) if surveyor else None
+    o_id = _resolve_person(db, office) if office else None
     values = {}
     for name in ("alt_survey_date", "entry_date"):
         raw = getattr(body, name, None)
@@ -1942,9 +1955,13 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
         comment = str(body.survey_comment).strip()
         if comment:
             values["survey_comment"] = comment
+    if body.office_comment is not None:
+        note = str(body.office_comment).strip()
+        if note:
+            values["office_comment"] = note
     # A field cannot be set and cleared in the same call.
     values = {k: v for k, v in values.items() if k not in clear}
-    if not values and not clear:
+    if not values and not clear and surveyor is None and office is None and target_status is None:
         raise HTTPException(status_code=400, detail="حدد حقلاً واحداً على الأقل للتعديل")
 
     rows = db.query(model).filter(model.id.in_(ids)).all()
@@ -1956,6 +1973,21 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
 
     for r in rows:
         old, new = {}, {}
+        if surveyor is not None and (r.surveyor_name != surveyor or r.assigned_surveyor_id != s_id):
+            old["surveyor"] = journal(r.surveyor_name)
+            new["surveyor"] = surveyor
+            r.surveyor_name = surveyor
+            r.assigned_surveyor_id = s_id
+        if office is not None and (r.office_name != office or r.assigned_office_id != o_id):
+            old["office"] = journal(r.office_name)
+            new["office"] = office
+            r.office_name = office
+            r.assigned_office_id = o_id
+        if target_status is not None and (r.request_status or "") != target_status:
+            old["request_status"] = r.request_status
+            new["request_status"] = target_status
+            r.request_status = target_status
+            r.status_updated_at = datetime.utcnow()
         for name, value in values.items():
             before = getattr(r, name)
             if before != value:
@@ -1978,6 +2010,19 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
             continue
         new["req_number"] = r.req_number
         _audit(db, current_user, r.id, "UPDATE", old=old, new=new)
+        if "surveyor" in new and s_id and s_id != current_user.id:
+            _notify_user(db, s_id, "assign", f"تم إسناد الطلب {r.req_number} إليك",
+                         f"بواسطة {current_user.username}", link_req=f"{link_prefix}:{r.req_number}")
+        if "office" in new and o_id and o_id != current_user.id:
+            _notify_user(db, o_id, "assign", f"تم إسناد الطلب {r.req_number} إليك",
+                         f"بواسطة {current_user.username}", link_req=f"{link_prefix}:{r.req_number}")
+        if "request_status" in new:
+            assignee = r.assigned_surveyor_id or r.assigned_office_id
+            if assignee and assignee != current_user.id:
+                _notify_user(db, assignee, "transition",
+                             f"تغيّرت حالة الطلب {r.req_number} إلى {target_status}",
+                             values.get("office_comment") or f"بواسطة {current_user.username}",
+                             link_req=f"{link_prefix}:{r.req_number}")
         changed += 1
     if problems:
         db.rollback()
@@ -2151,8 +2196,8 @@ def bulk_update_request_fields(
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_editor),
 ):
-    """Set (or clear) the survey fields of many requests at once."""
-    return {"updated": _apply_bulk_fields(db, CadastralRequest, body, current_user)}
+    """Set (or clear) the selected fields of many requests at once."""
+    return {"updated": _apply_bulk_fields(db, CadastralRequest, body, current_user, "company")}
 
 
 @router.post("/import")

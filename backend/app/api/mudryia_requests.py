@@ -679,7 +679,7 @@ def bulk_update_mudryia_fields(
     current_user: User = Depends(deps.get_current_active_editor),
 ):
     """Set (or clear) the survey fields of many mudryia requests at once."""
-    return {"updated": _apply_bulk_fields(db, MudryiaRequest, body, current_user)}
+    return {"updated": _apply_bulk_fields(db, MudryiaRequest, body, current_user, "mudryia")}
 
 
 @router.post("/import")
