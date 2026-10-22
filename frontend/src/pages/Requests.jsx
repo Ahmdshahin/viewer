@@ -1024,12 +1024,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   </div>
                 </div>
               </div>
-              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
             </>
           )}
           <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
             <Download className="w-3.5 h-3.5" /> تصدير المحدد
           </button>
+          {canEdit && (
+            <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyor || bulkOffice || bulkTo || bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkOfficeComment.trim() || bulkClearOffice || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يحدّث الحقول المدخلة فقط ويترك الباقي كما هو">تحديث الحقول</button>
+          )}
           <button onClick={() => setSel({})} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5">إلغاء التحديد</button>
         </div>
       )}
