@@ -94,6 +94,11 @@ def main() -> int:
         report["create_modal"] = modal.count() > 0
         report["create_empty_option"] = modal.locator("label", has_text=re.compile("^المساح$")).first.locator(
             "xpath=following-sibling::select").first.locator("option", has_text="(فارغ)").count() > 0
+        report["create_groups"] = {
+            "office": modal.get_by_text("بيانات المكتب الفنى", exact=True).count(),
+            "survey": modal.get_by_text("بيانات المعاينة", exact=True).count(),
+            "old": modal.get_by_text("المساح والمكتب الفني", exact=True).count(),
+        }
         page.keyboard.press("Escape")
         page.wait_for_timeout(300)
 
@@ -143,6 +148,9 @@ def main() -> int:
         problems.append("column chooser looks empty")
     if not report.get("create_modal"):
         problems.append("create modal did not open")
+    groups = report.get("create_groups") or {}
+    if groups and (groups.get("office") != 1 or groups.get("survey") != 1 or groups.get("old") != 0):
+        problems.append(f"create form groups wrong: {groups}")
     if not report.get("export_file", "").endswith(".xlsx"):
         problems.append("export did not download an .xlsx")
     bulk = report.get("bulk_bar")

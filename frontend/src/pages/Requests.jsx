@@ -1275,19 +1275,17 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <SelectField label="وحدة المساحة" value={createForm.area_unit || ""} onChange={(v)=>setC("area_unit",v)} options={withCurrent(formUnits.map((u) => u.name), createForm.area_unit)} clearable />
                   <SelectField label="نوع الوحدة" value={createForm.unit_type || ""} onChange={(v)=>setC("unit_type",v)} options={withCurrent(unitTypes, createForm.unit_type)} clearable />
                 </div>
+              </FormGroup>
+              <FormGroup title="بيانات المكتب الفنى">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <TextField label="تاريخ الإدخال" type="date" value={createForm.entry_date} onChange={(v)=>setC("entry_date",v)} err={createErrs.entry_date} />
+                  <SelectField label="المكتب الفني" value={createForm.office || ""} onChange={(v)=>setC("office",v)} options={staffOptions(allOfficeNames, createForm.office)} clearable err={createErrs.office} />
                   <SelectField label="حالة الطلب" value={createForm.request_status || ""} onChange={(v)=>setC("request_status",v)} options={withCurrent(requestStatuses, createForm.request_status)} clearable />
+                  <TextField label="تاريخ الإدخال" type="date" value={createForm.entry_date} onChange={(v)=>setC("entry_date",v)} err={createErrs.entry_date} />
                 </div>
               </FormGroup>
-              <FormGroup title="المساح والمكتب الفني">
+              <FormGroup title="بيانات المعاينة">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <SelectField label="المساح" value={createForm.surveyor || ""} onChange={(v)=>setC("surveyor",v)} options={staffOptions(allSurveyorNames, createForm.surveyor)} clearable err={createErrs.surveyor} />
-                  <SelectField label="المكتب الفني" value={createForm.office || ""} onChange={(v)=>setC("office",v)} options={staffOptions(allOfficeNames, createForm.office)} clearable err={createErrs.office} />
-                </div>
-              </FormGroup>
-              <FormGroup title="حالة المعاينة">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <SelectField label="حالة المعاينة" value={createForm.survey_status || ""} onChange={(v)=>setC("survey_status",v)} options={withCurrent(surveyStatuses, createForm.survey_status)} clearable err={createErrs.survey_status} />
                   <TextField label="تاريخ المعاينة" type="date" value={createForm.survey_date || ""} onChange={(v)=>setC("survey_date",v)} />
                 </div>
