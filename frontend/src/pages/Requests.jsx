@@ -743,10 +743,12 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     const baseRow = bulkBaseRef.current;
     const changed = (key, val) => (baseRow ? (val || "") !== (baseRow[key] || "") : !!val);
     const wasFilled = (key) => !!(baseRow && (baseRow[key] || ""));
-    if (bulkSurveyor && changed("surveyor", bulkSurveyor)) payload.surveyor = bulkSurveyor;
-    if (bulkOffice && changed("office", bulkOffice)) payload.office = bulkOffice;
+    if (bulkSurveyor === EMPTY_VALUE) clear.push("surveyor");
+    else if (bulkSurveyor && changed("surveyor", bulkSurveyor)) payload.surveyor = bulkSurveyor;
+    if (bulkOffice === EMPTY_VALUE) clear.push("office");
+    else if (bulkOffice && changed("office", bulkOffice)) payload.office = bulkOffice;
     if (bulkTo && changed("request_status", bulkTo)) payload.request_status = bulkTo;
-    if (bulkSurveyStatus === "__clear__") clear.push("survey_status");
+    if (bulkSurveyStatus === EMPTY_VALUE) clear.push("survey_status");
     else if (bulkSurveyStatus) {
       if (changed("survey_status", bulkSurveyStatus)) payload.survey_status = bulkSurveyStatus;
     } else if (wasFilled("survey_status")) clear.push("survey_status");
@@ -971,12 +973,13 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <div className="flex items-center gap-2 flex-wrap">
                   <select value={bulkSurveyor} onChange={(e) => setBulkSurveyor(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                     <option value="">مساح...</option>
-                    {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
+                    <option value={EMPTY_VALUE}>(فارغ)</option>
+                    {withCurrent(allSurveyorNames, bulkSurveyor === EMPTY_VALUE ? "" : bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                   <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
                     <option value="">حالة المعاينة...</option>
-                    <option value="__clear__">— مسح —</option>
-                    {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
+                    <option value={EMPTY_VALUE}>(فارغ)</option>
+                    {withCurrent(surveyStatuses, bulkSurveyStatus === EMPTY_VALUE ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
                     <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
@@ -999,7 +1002,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <div className="flex items-center gap-2 flex-wrap">
                   <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                     <option value="">مكتب...</option>
-                    {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
+                    <option value={EMPTY_VALUE}>(فارغ)</option>
+                    {withCurrent(allOfficeNames, bulkOffice === EMPTY_VALUE ? "" : bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
                   </select>
                   <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                     <option value="">حالة...</option>

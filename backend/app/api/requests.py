@@ -1910,6 +1910,8 @@ def transition_request(
 
 
 BULK_FIELD_LABELS = {
+    "surveyor": "المساح",
+    "office": "المكتب الفني",
     "survey_status": "حالة المعاينة",
     "survey_comment": "تعليق المعاينة (المكتب الفني)",
     "office_comment": "تعليق المكتب الفني",
@@ -1995,6 +1997,20 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
                 old[name] = journal(before)
                 new[name] = journal(value)
         for name in clear:
+            if name == "surveyor":
+                if r.surveyor_name is not None or r.assigned_surveyor_id is not None:
+                    old["surveyor"] = journal(r.surveyor_name)
+                    new["surveyor"] = None
+                    r.surveyor_name = None
+                    r.assigned_surveyor_id = None
+                continue
+            if name == "office":
+                if r.office_name is not None or r.assigned_office_id is not None:
+                    old["office"] = journal(r.office_name)
+                    new["office"] = None
+                    r.office_name = None
+                    r.assigned_office_id = None
+                continue
             before = getattr(r, name)
             if before is not None:
                 setattr(r, name, None)
