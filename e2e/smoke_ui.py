@@ -97,6 +97,20 @@ def main() -> int:
         page.keyboard.press("Escape")
         page.wait_for_timeout(300)
 
+        # bulk toolbar: selecting rows must offer the survey fields
+        row_boxes = page.locator("tbody input[type=checkbox]")
+        if row_boxes.count() > 0:
+            row_boxes.first.evaluate("el => el.click()")
+            page.wait_for_timeout(500)
+            bar = page.locator("div.bg-blue-600").first
+            report["bulk_bar"] = {
+                "survey_status": bar.locator("select[title='حالة المعاينة']").count(),
+                "dates": bar.locator("input[type=date]").count(),
+                "apply": bar.get_by_role("button", name="تحديث الحقول").count(),
+            }
+            row_boxes.first.evaluate("el => el.click()")
+            page.wait_for_timeout(300)
+
         with page.expect_download(timeout=120000) as dl:
             page.get_by_role("button", name="تصدير Excel").first.click()
         report["export_file"] = dl.value.suggested_filename
@@ -113,7 +127,8 @@ def main() -> int:
     problems = []
     if report.get("login") != "ok":
         problems.append("login failed")
-    problems += [f"{k}: page did not load" for k, v in report.items() if isinstance(v, dict) and not v.get("loaded")]
+    problems += [f"{k}: page did not load" for k, v in report.items()
+                 if isinstance(v, dict) and "loaded" in v and not v.get("loaded")]
     if errors:
         problems.append("console/page errors: " + ", ".join(failed))
     if not report.get("filter_empty_option"):
@@ -124,6 +139,9 @@ def main() -> int:
         problems.append("create modal did not open")
     if not report.get("export_file", "").endswith(".xlsx"):
         problems.append("export did not download an .xlsx")
+    bulk = report.get("bulk_bar")
+    if bulk and (bulk["survey_status"] != 1 or bulk["dates"] != 2 or bulk["apply"] != 1):
+        problems.append(f"bulk toolbar incomplete: {bulk}")
 
     print("RESULT:", "PASS" if not problems else "FAIL")
     for pr in problems:

@@ -23,9 +23,11 @@ from app.api.xlsx_export import applied_filters
 from app.api.requests import (
     ACCEPTED_SURVEY_STATUSES,
     BulkAssignIn,
+    BulkFieldsIn,
     BulkTransitionIn,
     RequestCreate,
     _allowed_request_statuses,
+    _apply_bulk_fields,
     RequestUpdate,
     TransitionIn,
     _apply_list_filters,
@@ -704,6 +706,16 @@ def bulk_transition_mudryia_requests(
         updated += 1
     db.commit()
     return {"updated": updated}
+
+
+@router.post("/bulk-fields")
+def bulk_update_mudryia_fields(
+    body: BulkFieldsIn,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_editor),
+):
+    """Set (or clear) the survey fields of many mudryia requests at once."""
+    return {"updated": _apply_bulk_fields(db, MudryiaRequest, body, current_user)}
 
 
 @router.post("/import")

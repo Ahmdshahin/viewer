@@ -1024,6 +1024,14 @@ class BulkTransitionIn(BaseModel):
     comment: Optional[str] = None
 
 
+class BulkFieldsIn(BaseModel):
+    ids: List[int]
+    survey_status: Optional[str] = None
+    alt_survey_date: Optional[str] = None
+    entry_date: Optional[str] = None
+    clear: List[str] = []
+
+
 ACCEPTED_SURVEY_STATUSES = ("تم المعاينة", "تمت المعاينة", "تم المعاينه")
 
 
@@ -1892,6 +1900,84 @@ def transition_request(
             "assigned_to": _assignee_name(db, r)}
 
 
+BULK_FIELD_LABELS = {
+    "survey_status": "حالة المعاينة",
+    "alt_survey_date": "تاريخ الرفع الميدانى",
+    "entry_date": "تاريخ الإدخال",
+}
+
+
+def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: User) -> int:
+    """Apply survey_status / alt_survey_date / entry_date to many rows.
+
+    The batch is all-or-nothing: every touched row is re-validated against the
+    acceptance and date-order rules, and a single violation rolls the whole
+    change back with the offending request numbers in the message.
+    """
+    ids = [i for i in (body.ids or []) if isinstance(i, int) and i > 0][:2000]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No request ids provided")
+
+    clear = {name for name in (body.clear or []) if name in BULK_FIELD_LABELS}
+    values = {}
+    for name in ("alt_survey_date", "entry_date"):
+        raw = getattr(body, name, None)
+        if raw is None or not str(raw).strip():
+            continue
+        parsed = _parse_date(raw)
+        if parsed is None:
+            raise HTTPException(status_code=400, detail=f"تاريخ غير صالح: {raw}")
+        values[name] = parsed
+    if body.survey_status is not None and str(body.survey_status).strip():
+        status = _snap_survey_status(body.survey_status)
+        if status:
+            values["survey_status"] = status
+    # A field cannot be set and cleared in the same call.
+    values = {k: v for k, v in values.items() if k not in clear}
+    if not values and not clear:
+        raise HTTPException(status_code=400, detail="حدد حقلاً واحداً على الأقل للتعديل")
+
+    rows = db.query(model).filter(model.id.in_(ids)).all()
+    changed, problems = 0, []
+
+    def journal(value):
+        # Audit rows are JSON text, so dates go in ISO form.
+        return value.isoformat() if isinstance(value, (date, datetime)) else value
+
+    for r in rows:
+        old, new = {}, {}
+        for name, value in values.items():
+            before = getattr(r, name)
+            if before != value:
+                setattr(r, name, value)
+                old[name] = journal(before)
+                new[name] = journal(value)
+        for name in clear:
+            before = getattr(r, name)
+            if before is not None:
+                setattr(r, name, None)
+                old[name] = journal(before)
+                new[name] = None
+        if not new:
+            continue
+        try:
+            _require_date_order(r)
+            _require_acceptable(r)
+        except HTTPException as exc:
+            problems.append(f"{r.req_number}: {exc.detail}")
+            continue
+        new["req_number"] = r.req_number
+        _audit(db, current_user, r.id, "UPDATE", old=old, new=new)
+        changed += 1
+    if problems:
+        db.rollback()
+        head = "، ".join(problems[:4])
+        more = f" (و{len(problems) - 4} غيرها)" if len(problems) > 4 else ""
+        raise HTTPException(status_code=400, detail="لم يتم التعديل — " + head + more)
+    db.commit()
+    return changed
+
+
 @router.post("/bulk-assign")
 def bulk_assign_requests(
     body: BulkAssignIn,
@@ -1979,6 +2065,16 @@ def bulk_transition_requests(
         updated += 1
     db.commit()
     return {"updated": updated}
+
+
+@router.post("/bulk-fields")
+def bulk_update_request_fields(
+    body: BulkFieldsIn,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_active_editor),
+):
+    """Set (or clear) the survey fields of many requests at once."""
+    return {"updated": _apply_bulk_fields(db, CadastralRequest, body, current_user)}
 
 
 @router.post("/import")
