@@ -742,19 +742,30 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     const clear = [];
     const baseRow = bulkBaseRef.current;
     const changed = (key, val) => (baseRow ? (val || "") !== (baseRow[key] || "") : !!val);
+    const wasFilled = (key) => !!(baseRow && (baseRow[key] || ""));
     if (bulkSurveyor && changed("surveyor", bulkSurveyor)) payload.surveyor = bulkSurveyor;
     if (bulkOffice && changed("office", bulkOffice)) payload.office = bulkOffice;
     if (bulkTo && changed("request_status", bulkTo)) payload.request_status = bulkTo;
     if (bulkSurveyStatus === "__clear__") clear.push("survey_status");
-    else if (bulkSurveyStatus && changed("survey_status", bulkSurveyStatus)) payload.survey_status = bulkSurveyStatus;
+    else if (bulkSurveyStatus) {
+      if (changed("survey_status", bulkSurveyStatus)) payload.survey_status = bulkSurveyStatus;
+    } else if (wasFilled("survey_status")) clear.push("survey_status");
     if (bulkClearComment) clear.push("survey_comment");
-    else if (bulkSurveyComment.trim() && changed("survey_comment", bulkSurveyComment.trim())) payload.survey_comment = bulkSurveyComment.trim();
+    else if (bulkSurveyComment.trim()) {
+      if (changed("survey_comment", bulkSurveyComment.trim())) payload.survey_comment = bulkSurveyComment.trim();
+    } else if (wasFilled("survey_comment")) clear.push("survey_comment");
     if (bulkClearOffice) clear.push("office_comment");
-    else if (bulkOfficeComment.trim() && changed("office_comment", bulkOfficeComment.trim())) payload.office_comment = bulkOfficeComment.trim();
+    else if (bulkOfficeComment.trim()) {
+      if (changed("office_comment", bulkOfficeComment.trim())) payload.office_comment = bulkOfficeComment.trim();
+    } else if (wasFilled("office_comment")) clear.push("office_comment");
     if (bulkClearAlt) clear.push("alt_survey_date");
-    else if (bulkAltDate && changed("alt_survey_date", bulkAltDate)) payload.alt_survey_date = bulkAltDate;
+    else if (bulkAltDate) {
+      if (changed("alt_survey_date", bulkAltDate)) payload.alt_survey_date = bulkAltDate;
+    } else if (wasFilled("alt_survey_date")) clear.push("alt_survey_date");
     if (bulkClearEntry) clear.push("entry_date");
-    else if (bulkEntryDate && changed("entry_date", bulkEntryDate)) payload.entry_date = bulkEntryDate;
+    else if (bulkEntryDate) {
+      if (changed("entry_date", bulkEntryDate)) payload.entry_date = bulkEntryDate;
+    } else if (wasFilled("entry_date")) clear.push("entry_date");
     if (clear.length) payload.clear = clear;
     if (Object.keys(payload).length === 1) { setNote({ ok: "لا توجد تغييرات" }); return; }
     setBulkBusy(true);
