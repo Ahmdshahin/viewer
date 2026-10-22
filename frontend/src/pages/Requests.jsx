@@ -6,6 +6,7 @@ import {
   Download, UserCheck, SlidersHorizontal, Map as MapIcon, Plus,
 } from "lucide-react";
 import axios from "axios";
+import { ALL_COLS, DEFAULT_COLS } from "./requests/columns";
 
 const FIELD_LABEL = "text-xs font-medium text-slate-600 mb-1 block";
 const FIELD_INPUT = "w-full border border-slate-300 rounded-lg px-3 py-1.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors";
@@ -13,32 +14,6 @@ const FIELD_INPUT_SM = "w-full border border-slate-300 rounded-lg px-2 py-1 text
 const FIELD_LABEL_SM = "text-[11px] font-medium text-slate-600 mb-0.5 block";
 const BASEMAP_WITH_GEOM = "✔ shapefile";
 const BASEMAP_WITHOUT_GEOM = "Non_shapefile";
-
-
-const ALL_COLS = [
-  { key: "req_number", label: "رقم الطلب", sortKey: "req_number" },
-  { key: "reqra_number", label: "رقم التقنين" },
-  { key: "applicant", label: "اسم مقدم الطلب", sortKey: "applicant" },
-  { key: "phone", label: "الهاتف" },
-  { key: "governorate", label: "المحافظة" },
-  { key: "center", label: "المركز" },
-  { key: "village", label: "القرية" },
-  { key: "area", label: "المساحة/الوحدة", sortKey: "area_value", align: "right" },
-  { key: "unit_type", label: "نوع الوحدة", sortKey: "unit_type" },
-  { key: "surveyor", label: "المساح" },
-  { key: "survey_status", label: "حالة المعاينة", sortKey: "survey_status" },
-  { key: "alt_survey_date", label: "تاريخ الرفع الميدانى", sortKey: "alt_survey_date" },
-  { key: "survey_comment", label: "تعليق المعاينة (المكتب الفني)" },
-  { key: "office", label: "المكتب الفني" },
-  { key: "request_status", label: "حالة الطلب", sortKey: "request_status" },
-  { key: "entry_date", label: "تاريخ الإدخال", sortKey: "entry_date" },
-  { key: "office_comment", label: "تعليق المكتب الفني" },
-  { key: "directorate_date", label: "تاريخ الإرسال للمديرية", mudryiaOnly: true },
-  { key: "company", label: "الشركة" },
-  { key: "geom", label: "الخريطة" },
-  { key: "actions", label: "إجراءات", always: true },
-];
-const DEFAULT_COLS = ["req_number", "applicant", "center", "area", "survey_status", "request_status", "reqra_number", "directorate_date", "geom", "actions"];
 
 const FIELD_AR = {
   req_number: "رقم الطلب", applicant: "مقدم الطلب", phone: "الهاتف", address: "العنوان",

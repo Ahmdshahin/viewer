@@ -13,18 +13,16 @@ the data sheet is always the first one.
 from datetime import date, datetime
 from io import BytesIO
 
+from app.api.ledger_schema import COMMENT_KEYS, NUM_KEYS, STATUS_KEYS, TEXT_KEYS
+
 # Same header colour as the intake template, so both files look alike.
 HEADER_FILL = "1F4E79"
 HEADER_FONT = "FFFFFF"
 ZEBRA_FILL = "F8FAFC"
 
-# Columns written as text so Excel cannot reformat them (a phone number must
-# keep its leading zero, a request number its exact digits).
-TEXT_KEYS = ("req_number", "reqra_number", "phone")
-# Numeric columns with a plain number format.
-NUM_KEYS = ("area_value",)
-# Free-text columns that get a wider, wrapped cell.
-COMMENT_KEYS = ("survey_comment", "office_comment")
+# TEXT_KEYS / NUM_KEYS / COMMENT_KEYS / STATUS_KEYS come from the shared field
+# registry (shared/ledger_fields.json), so a new text/number/status column is
+# formatted here automatically.
 
 # Status colouring: (cell fill, font colour). Unknown statuses keep the
 # default look, so a new managed status never breaks the export.
@@ -149,7 +147,9 @@ def build_ledger_workbook(headers, rows, keys, meta=None, sheet_title="الطل�
                 cell.number_format = "0.###"
             else:
                 cell.value = value
-            tone = STATUS_COLORS.get(key, {}).get(str(value).strip() if value is not None else "")
+            tone = None
+            if key in STATUS_KEYS:
+                tone = STATUS_COLORS.get(key, {}).get(str(value).strip() if value is not None else "")
             if tone:
                 cell.fill = PatternFill("solid", fgColor=tone[0])
                 cell.font = Font(color=tone[1], bold=True)

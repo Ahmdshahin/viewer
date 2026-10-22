@@ -1,0 +1,231 @@
+{
+  "_note": "Single source of truth for the request-ledger fields. The frontend table (ALL_COLS) and the backend Excel export/import schema are both derived from this file. Add a field here once, then wire its value in backend/app/api/requests.py (_export_table) and, if it is editable, in the request form.",
+  "fields": [
+    {
+      "key": "req_number",
+      "label": "رقم الطلب",
+      "header": "رقم الطلب",
+      "kind": "text",
+      "sort": true
+    },
+    {
+      "key": "applicant",
+      "label": "اسم مقدم الطلب",
+      "header": "مقدم الطلب",
+      "sort": true
+    },
+    {
+      "key": "reqra_number",
+      "label": "رقم التقنين",
+      "header": "رقم التقنين",
+      "kind": "text"
+    },
+    {
+      "key": "phone",
+      "label": "الهاتف",
+      "header": "الهاتف",
+      "kind": "text"
+    },
+    {
+      "key": "address",
+      "header": "العنوان"
+    },
+    {
+      "key": "area_value",
+      "label": "المساحة/الوحدة",
+      "header": "المساحة",
+      "kind": "number",
+      "sort": true,
+      "align": "right",
+      "table_key": "area"
+    },
+    {
+      "key": "area_unit",
+      "header": "نوع المساحة"
+    },
+    {
+      "key": "unit_type",
+      "label": "نوع الوحدة",
+      "header": "نوع الوحدة",
+      "sort": true
+    },
+    {
+      "key": "governorate",
+      "label": "المحافظة",
+      "header": "المحافظة"
+    },
+    {
+      "key": "center",
+      "label": "المركز",
+      "header": "المركز"
+    },
+    {
+      "key": "village",
+      "label": "القرية",
+      "header": "القرية"
+    },
+    {
+      "key": "landmarks",
+      "header": "علامات مميزة"
+    },
+    {
+      "key": "distribution_date",
+      "header": "تاريخ التوزيع"
+    },
+    {
+      "key": "survey_date",
+      "header": "تاريخ الرفع المساحي"
+    },
+    {
+      "key": "field_team",
+      "header": "الفريق الميدانى"
+    },
+    {
+      "key": "company",
+      "label": "الشركة",
+      "header": "الشركة"
+    },
+    {
+      "key": "surveyor",
+      "label": "المساح",
+      "header": "المساح"
+    },
+    {
+      "key": "survey_status",
+      "label": "حالة المعاينة",
+      "header": "حالة المعاينة",
+      "kind": "status",
+      "sort": true
+    },
+    {
+      "key": "alt_survey_date",
+      "label": "تاريخ الرفع الميدانى",
+      "header": "تاريخ الرفع الميدانى",
+      "sort": true
+    },
+    {
+      "key": "survey_comment",
+      "label": "تعليق المعاينة (المكتب الفني)",
+      "header": "تعليق المعاينة (المكتب الفني)",
+      "kind": "comment"
+    },
+    {
+      "key": "office",
+      "label": "المكتب الفني",
+      "header": "المكتب الفنى"
+    },
+    {
+      "key": "request_status",
+      "label": "حالة الطلب",
+      "header": "الحالة الطلب",
+      "kind": "status",
+      "sort": true
+    },
+    {
+      "key": "entry_date",
+      "label": "تاريخ الإدخال",
+      "header": "تاريخ الادخال",
+      "sort": true
+    },
+    {
+      "key": "office_comment",
+      "label": "تعليق المكتب الفني",
+      "header": "تعليق المكتب الفنى",
+      "kind": "comment"
+    },
+    {
+      "key": "raw_files",
+      "header": "ملفات Raw"
+    },
+    {
+      "key": "geodesy_date",
+      "header": "تاريخ الارسال جيوديسيا"
+    },
+    {
+      "key": "directorate_date",
+      "label": "تاريخ الإرسال للمديرية",
+      "header": "تاريخ الارسال للمديريه",
+      "mudryia_only": true
+    },
+    {
+      "key": "base_map",
+      "header": "BaseMap"
+    },
+    {
+      "key": "geom",
+      "label": "الخريطة",
+      "table_only": true
+    },
+    {
+      "key": "actions",
+      "label": "إجراءات",
+      "table_only": true,
+      "always": true
+    }
+  ],
+  "table_order": [
+    "req_number",
+    "reqra_number",
+    "applicant",
+    "phone",
+    "governorate",
+    "center",
+    "village",
+    "area_value",
+    "unit_type",
+    "surveyor",
+    "survey_status",
+    "alt_survey_date",
+    "survey_comment",
+    "office",
+    "request_status",
+    "entry_date",
+    "office_comment",
+    "directorate_date",
+    "company",
+    "geom",
+    "actions"
+  ],
+  "default_columns": [
+    "req_number",
+    "applicant",
+    "center",
+    "area",
+    "survey_status",
+    "request_status",
+    "reqra_number",
+    "directorate_date",
+    "geom",
+    "actions"
+  ],
+  "export_order": [
+    "req_number",
+    "applicant",
+    "reqra_number",
+    "phone",
+    "address",
+    "area_value",
+    "area_unit",
+    "unit_type",
+    "governorate",
+    "center",
+    "village",
+    "landmarks",
+    "distribution_date",
+    "survey_date",
+    "field_team",
+    "company",
+    "surveyor",
+    "survey_status",
+    "alt_survey_date",
+    "survey_comment",
+    "office",
+    "request_status",
+    "entry_date",
+    "office_comment",
+    "raw_files",
+    "geodesy_date",
+    "directorate_date",
+    "base_map"
+  ]
+}

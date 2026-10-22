@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.api import deps
+from app.api.ledger_schema import EXPORT_COLUMNS, EXPORT_KEYS
 from app.api.xlsx_export import applied_filters
 from app.db.models import (
     AreaUnit, CadastralRequest, Center, Governorate, LookupValue, Notification,
@@ -1302,42 +1303,8 @@ def _apply_list_filters(query, db: Session, current_user: User, model, *,
     return query
 
 
-# Export columns: the shared template's headers in template order plus the
-# legacy-export columns. Every header is a key HEADER_MAP (or its aliases)
-# recognises, so an exported file re-imports through the same intake tool.
-EXPORT_COLUMNS = (
-    ("رقم الطلب", "req_number"),
-    ("مقدم الطلب", "applicant"),
-    ("رقم التقنين", "reqra_number"),
-    ("الهاتف", "phone"),
-    ("العنوان", "address"),
-    ("المساحة", "area_value"),
-    ("نوع المساحة", "area_unit"),
-    ("نوع الوحدة", "unit_type"),
-    ("المحافظة", "governorate"),
-    ("المركز", "center"),
-    ("القرية", "village"),
-    ("علامات مميزة", "landmarks"),
-    ("تاريخ التوزيع", "distribution_date"),
-    ("تاريخ الرفع المساحي", "survey_date"),
-    ("الفريق الميدانى", "field_team"),
-    ("الشركة", "company"),
-    ("المساح", "surveyor"),
-    ("حالة المعاينة", "survey_status"),
-    ("تاريخ الرفع الميدانى", "alt_survey_date"),
-    ("تعليق المعاينة (المكتب الفني)", "survey_comment"),
-    ("المكتب الفنى", "office"),
-    ("الحالة الطلب", "request_status"),
-    ("تاريخ الادخال", "entry_date"),
-    ("تعليق المكتب الفنى", "office_comment"),
-    ("ملفات Raw", "raw_files"),
-    ("تاريخ الارسال جيوديسيا", "geodesy_date"),
-    ("تاريخ الارسال للمديريه", "directorate_date"),
-    ("BaseMap", "base_map"),
-)
-# The field key behind each exported column, so the Excel writer knows which
-# columns are dates, numbers, text or a status.
-EXPORT_KEYS = [key for _, key in EXPORT_COLUMNS]
+# Export columns (header, field key) come from shared/ledger_fields.json via
+# app.api.ledger_schema, together with the frontend table column list.
 
 
 def _export_table(db: Session, items) -> tuple:
