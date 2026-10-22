@@ -951,7 +951,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       )}
 
       {selIds.length > 0 && (
-        <div className="flex-none bg-blue-600 text-white rounded-xl shadow-sm px-4 py-2.5 flex items-center gap-3 flex-wrap">
+        <div className="flex-none bg-blue-600 text-white rounded-xl shadow-sm px-4 py-2.5 flex items-end gap-3 flex-wrap">
           <span title="عدد الطلبات المحددة" className="w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{selIds.length}</span>
           {canEdit && (
             <>
