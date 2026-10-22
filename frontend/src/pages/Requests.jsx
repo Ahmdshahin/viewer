@@ -959,11 +959,29 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <option value="">مساح...</option>
                 {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
+              <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
+                <option value="">حالة المعاينة...</option>
+                <option value="__clear__">— مسح —</option>
+                {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
+                <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
+                <button onClick={() => setBulkClearComment((v) => !v)} title={bulkClearComment ? "إلغاء المسح" : "مسح التعليق"} className={"p-0.5 rounded " + (bulkClearComment ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>
+                <input type="date" value={bulkAltDate} disabled={bulkClearAlt} onChange={(e) => setBulkAltDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
+                <button onClick={() => setBulkClearAlt((v) => !v)} title={bulkClearAlt ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearAlt ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <span className="w-px h-6 bg-white/30" />
               <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">مكتب...</option>
                 {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <span className="w-px h-6 bg-white/30" />
               <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">حالة...</option>
                 {withCurrent(requestStatuses, bulkTo).map((s) => <option key={s} value={s}>{s}</option>)}
@@ -978,26 +996,6 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الإدخال</span>
                 <input type="date" value={bulkEntryDate} disabled={bulkClearEntry} onChange={(e) => setBulkEntryDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
                 <button onClick={() => setBulkClearEntry((v) => !v)} title={bulkClearEntry ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearEntry ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <span className="w-px h-6 bg-white/30" />
-              <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
-                <option value="">حالة المعاينة...</option>
-                <option value="__clear__">— مسح —</option>
-                {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
-                <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
-                <button onClick={() => setBulkClearComment((v) => !v)} title={bulkClearComment ? "إلغاء المسح" : "مسح التعليق"} className={"p-0.5 rounded " + (bulkClearComment ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <span className="w-px h-6 bg-white/30" />
-              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
-                <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>
-                <input type="date" value={bulkAltDate} disabled={bulkClearAlt} onChange={(e) => setBulkAltDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
-                <button onClick={() => setBulkClearAlt((v) => !v)} title={bulkClearAlt ? "إلغاء المسح" : "مسح التاريخ"} className={"p-0.5 rounded " + (bulkClearAlt ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
