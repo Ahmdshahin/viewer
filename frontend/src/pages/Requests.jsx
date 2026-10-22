@@ -283,6 +283,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const [bulkClearAlt, setBulkClearAlt] = useState(false);
   const [bulkEntryDate, setBulkEntryDate] = useState("");
   const [bulkClearEntry, setBulkClearEntry] = useState(false);
+  const bulkBaseRef = useRef(null);
   const [views, setViews] = useState({});
   const [viewName, setViewName] = useState("");
   const [cols, setCols] = useState(() => {
@@ -372,6 +373,35 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const allOfficeNames = uniq((staff.offices || []).filter(Boolean));
 
   const selIds = useMemo(() => Object.keys(sel).filter((k) => sel[k]).map(Number), [sel]);
+  useEffect(() => {
+    const reset = () => {
+      bulkBaseRef.current = null;
+      setBulkSurveyor(""); setBulkOffice(""); setBulkTo("");
+      setBulkSurveyStatus(""); setBulkSurveyComment(""); setBulkClearComment(false);
+      setBulkOfficeComment(""); setBulkClearOffice(false);
+      setBulkAltDate(""); setBulkClearAlt(false);
+      setBulkEntryDate(""); setBulkClearEntry(false);
+    };
+    if (selIds.length !== 1) { reset(); return; }
+    const row = rows.find((r) => r.id === selIds[0]);
+    if (!row) { reset(); return; }
+    const base = {
+      surveyor: row.surveyor || "",
+      office: row.office || "",
+      request_status: row.request_status || "",
+      office_comment: row.office_comment || "",
+      survey_status: row.survey_status || "",
+      survey_comment: row.survey_comment || "",
+      entry_date: (row.entry_date || "").slice(0, 10),
+      alt_survey_date: (row.alt_survey_date || "").slice(0, 10),
+    };
+    bulkBaseRef.current = base;
+    setBulkSurveyor(base.surveyor); setBulkOffice(base.office); setBulkTo(base.request_status);
+    setBulkSurveyStatus(base.survey_status); setBulkSurveyComment(base.survey_comment); setBulkClearComment(false);
+    setBulkOfficeComment(base.office_comment); setBulkClearOffice(false);
+    setBulkAltDate(base.alt_survey_date); setBulkClearAlt(false);
+    setBulkEntryDate(base.entry_date); setBulkClearEntry(false);
+  }, [selIds]);
   const visibleCols = useMemo(() => ALL_COLS.filter((c) => (c.always || cols.includes(c.key)) && (!c.mudryiaOnly || isMudryia)), [cols, isMudryia]);
   const cellPad = density === "compact" ? "px-3 py-1" : "px-4 py-2";
 
@@ -710,26 +740,28 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     if (!selIds.length || bulkBusy) return;
     const payload = { ids: selIds };
     const clear = [];
-    if (bulkSurveyor) payload.surveyor = bulkSurveyor;
-    if (bulkOffice) payload.office = bulkOffice;
-    if (bulkTo) payload.request_status = bulkTo;
+    const baseRow = bulkBaseRef.current;
+    const changed = (key, val) => (baseRow ? (val || "") !== (baseRow[key] || "") : !!val);
+    if (bulkSurveyor && changed("surveyor", bulkSurveyor)) payload.surveyor = bulkSurveyor;
+    if (bulkOffice && changed("office", bulkOffice)) payload.office = bulkOffice;
+    if (bulkTo && changed("request_status", bulkTo)) payload.request_status = bulkTo;
     if (bulkSurveyStatus === "__clear__") clear.push("survey_status");
-    else if (bulkSurveyStatus) payload.survey_status = bulkSurveyStatus;
+    else if (bulkSurveyStatus && changed("survey_status", bulkSurveyStatus)) payload.survey_status = bulkSurveyStatus;
     if (bulkClearComment) clear.push("survey_comment");
-    else if (bulkSurveyComment.trim()) payload.survey_comment = bulkSurveyComment.trim();
+    else if (bulkSurveyComment.trim() && changed("survey_comment", bulkSurveyComment.trim())) payload.survey_comment = bulkSurveyComment.trim();
     if (bulkClearOffice) clear.push("office_comment");
-    else if (bulkOfficeComment.trim()) payload.office_comment = bulkOfficeComment.trim();
+    else if (bulkOfficeComment.trim() && changed("office_comment", bulkOfficeComment.trim())) payload.office_comment = bulkOfficeComment.trim();
     if (bulkClearAlt) clear.push("alt_survey_date");
-    else if (bulkAltDate) payload.alt_survey_date = bulkAltDate;
+    else if (bulkAltDate && changed("alt_survey_date", bulkAltDate)) payload.alt_survey_date = bulkAltDate;
     if (bulkClearEntry) clear.push("entry_date");
-    else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
+    else if (bulkEntryDate && changed("entry_date", bulkEntryDate)) payload.entry_date = bulkEntryDate;
     if (clear.length) payload.clear = clear;
-    if (Object.keys(payload).length === 1) return;
+    if (Object.keys(payload).length === 1) { setNote({ ok: "لا توجد تغييرات" }); return; }
     setBulkBusy(true);
     setNote(null);
     try {
       const r = await api.post(base + "/bulk-fields", payload, authH());
-      setNote({ ok: `تم تحديث ${r.data?.updated ?? selIds.length} طلب` });
+      setNote({ ok: r.data?.updated ? `تم تحديث ${r.data.updated} طلب` : "لا توجد تغييرات" });
       setSel({});
       setBulkSurveyor("");
       setBulkOffice("");
@@ -925,16 +957,16 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
             <>
               <select value={bulkSurveyor} onChange={(e) => setBulkSurveyor(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">مساح...</option>
-                {allSurveyorNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                {withCurrent(allSurveyorNames, bulkSurveyor).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
               <select value={bulkOffice} onChange={(e) => setBulkOffice(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">مكتب...</option>
-                {allOfficeNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                {withCurrent(allOfficeNames, bulkOffice).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
               <span className="w-px h-6 bg-white/30" />
               <select value={bulkTo} onChange={(e) => setBulkTo(e.target.value)} className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]">
                 <option value="">حالة...</option>
-                {requestStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                {withCurrent(requestStatuses, bulkTo).map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearOffice ? "ring-2 ring-red-300" : "")}>
                 <input value={bulkOfficeComment} disabled={bulkClearOffice} onChange={(e) => setBulkOfficeComment(e.target.value)} placeholder="تعليق المكتب الفني" title="تعليق المكتب الفني" className="text-xs text-slate-800 bg-transparent min-w-[170px] disabled:opacity-40" />
@@ -953,7 +985,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
               <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
                 <option value="">حالة المعاينة...</option>
                 <option value="__clear__">— مسح —</option>
-                {surveyStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
+                {withCurrent(surveyStatuses, bulkSurveyStatus === "__clear__" ? "" : bulkSurveyStatus).map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
               <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
                 <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
