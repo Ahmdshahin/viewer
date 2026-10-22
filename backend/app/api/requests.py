@@ -1027,6 +1027,7 @@ class BulkTransitionIn(BaseModel):
 class BulkFieldsIn(BaseModel):
     ids: List[int]
     survey_status: Optional[str] = None
+    survey_comment: Optional[str] = None
     alt_survey_date: Optional[str] = None
     entry_date: Optional[str] = None
     clear: List[str] = []
@@ -1902,6 +1903,7 @@ def transition_request(
 
 BULK_FIELD_LABELS = {
     "survey_status": "حالة المعاينة",
+    "survey_comment": "تعليق المعاينة (المكتب الفني)",
     "alt_survey_date": "تاريخ الرفع الميدانى",
     "entry_date": "تاريخ الإدخال",
 }
@@ -1932,6 +1934,10 @@ def _apply_bulk_fields(db: Session, model, body: BulkFieldsIn, current_user: Use
         status = _snap_survey_status(body.survey_status)
         if status:
             values["survey_status"] = status
+    if body.survey_comment is not None:
+        comment = str(body.survey_comment).strip()
+        if comment:
+            values["survey_comment"] = comment
     # A field cannot be set and cleared in the same call.
     values = {k: v for k, v in values.items() if k not in clear}
     if not values and not clear:

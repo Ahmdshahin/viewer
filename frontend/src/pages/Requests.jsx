@@ -276,6 +276,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
   const [bulkTo, setBulkTo] = useState("");
   const [bulkComment, setBulkComment] = useState("");
   const [bulkSurveyStatus, setBulkSurveyStatus] = useState("");
+  const [bulkSurveyComment, setBulkSurveyComment] = useState("");
+  const [bulkClearComment, setBulkClearComment] = useState(false);
   const [bulkAltDate, setBulkAltDate] = useState("");
   const [bulkClearAlt, setBulkClearAlt] = useState(false);
   const [bulkEntryDate, setBulkEntryDate] = useState("");
@@ -747,12 +749,14 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
     const clear = [];
     if (bulkSurveyStatus === "__clear__") clear.push("survey_status");
     else if (bulkSurveyStatus) payload.survey_status = bulkSurveyStatus;
+    if (bulkClearComment) clear.push("survey_comment");
+    else if (bulkSurveyComment.trim()) payload.survey_comment = bulkSurveyComment.trim();
     if (bulkClearAlt) clear.push("alt_survey_date");
     else if (bulkAltDate) payload.alt_survey_date = bulkAltDate;
     if (bulkClearEntry) clear.push("entry_date");
     else if (bulkEntryDate) payload.entry_date = bulkEntryDate;
     if (clear.length) payload.clear = clear;
-    if (!payload.survey_status && !payload.alt_survey_date && !payload.entry_date && !clear.length) return;
+    if (!payload.survey_status && !payload.survey_comment && !payload.alt_survey_date && !payload.entry_date && !clear.length) return;
     setBulkBusy(true);
     setNote(null);
     try {
@@ -760,6 +764,8 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
       setNote({ ok: `تم تحديث ${r.data?.updated ?? selIds.length} طلب` });
       setSel({});
       setBulkSurveyStatus("");
+      setBulkSurveyComment("");
+      setBulkClearComment(false);
       setBulkAltDate("");
       setBulkClearAlt(false);
       setBulkEntryDate("");
@@ -959,14 +965,21 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                 <option value="">حالة...</option>
                 {requestStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
-              <input value={bulkComment} onChange={(e) => setBulkComment(e.target.value)} placeholder="تعليق..." className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[140px]" />
-              <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
-              <span className="w-px h-6 bg-white/30" />
               <select value={bulkSurveyStatus} onChange={(e) => setBulkSurveyStatus(e.target.value)} title="حالة المعاينة" className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]">
                 <option value="">حالة المعاينة...</option>
                 <option value="__clear__">— مسح —</option>
                 {surveyStatuses.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
+              <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearComment ? "ring-2 ring-red-300" : "")}>
+                <input value={bulkSurveyComment} disabled={bulkClearComment} onChange={(e) => setBulkSurveyComment(e.target.value)} placeholder="تعليق المعاينة (المكتب الفني)" title="تعليق المعاينة (المكتب الفني)" className="text-xs text-slate-800 bg-transparent min-w-[190px] disabled:opacity-40" />
+                <button onClick={() => setBulkClearComment((v) => !v)} title={bulkClearComment ? "إلغاء المسح" : "مسح التعليق"} className={"p-0.5 rounded " + (bulkClearComment ? "text-red-600" : "text-slate-400 hover:text-red-600")}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <span className="w-px h-6 bg-white/30" />
+              <input value={bulkComment} onChange={(e) => setBulkComment(e.target.value)} placeholder="تعليق تغيير الحالة..." className="text-xs text-slate-800 rounded-lg px-2 py-1.5 bg-white min-w-[150px]" />
+              <button onClick={bulkTransition} disabled={bulkBusy || !bulkTo} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40">تغيير الحالة</button>
+              <span className="w-px h-6 bg-white/30" />
               <div className={"inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 " + (bulkClearAlt ? "ring-2 ring-red-300" : "")}>
                 <span className="text-[10px] text-slate-500 whitespace-nowrap">تاريخ الرفع الميدانى</span>
                 <input type="date" value={bulkAltDate} disabled={bulkClearAlt} onChange={(e) => setBulkAltDate(e.target.value)} className="text-xs text-slate-800 bg-transparent disabled:opacity-40" />
@@ -981,7 +994,7 @@ export function RequestLedger({ base = "/api/v1/requests", title = "طلبات �
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyStatus || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40">تحديث الحقول</button>
+              <button onClick={bulkFields} disabled={bulkBusy || !(bulkSurveyStatus || bulkSurveyComment.trim() || bulkClearComment || bulkAltDate || bulkClearAlt || bulkEntryDate || bulkClearEntry)} className="text-xs font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg px-3 py-1.5 disabled:opacity-40" title="يطبق حالة المعاينة وتعليقها والتواريخ">تحديث الحقول</button>
             </>
           )}
           <button onClick={() => exportExcel(selIds)} disabled={exportBusy} className="text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-1.5 disabled:opacity-40 inline-flex items-center gap-1">
