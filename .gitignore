@@ -22,6 +22,10 @@ backend/staging/
 *.env
 backend/db_connection.json
 
+# Backup schedule + generated dumps (machine-specific / large)
+backend/backup_settings.json
+backups/
+
 # Data (large / machine-specific, not code)
 *.gpkg
 *.gpkg-shm

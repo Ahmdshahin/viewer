@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useConfirm } from "../components/ConfirmModal";
-import { Server, Save, RefreshCw, CheckCircle, AlertTriangle, Trash2, PlusCircle } from "lucide-react";
+import { Server, Save, RefreshCw, CheckCircle, AlertTriangle, Trash2, PlusCircle, DatabaseBackup, Clock, FolderOpen, Play, CalendarClock } from "lucide-react";
 
 const DbSettings = () => {
   const [form, setForm] = useState({ host: "", port: 5432, user: "", password: "", db: "" });
@@ -28,6 +28,120 @@ const DbSettings = () => {
 
   useEffect(() => { load(); }, []);
   useEffect(() => { fetchMapLayers(); }, []);
+
+  // ---- Scheduled backups (admin) ----
+  const [backup, setBackup] = useState(null);
+  const [bkForm, setBkForm] = useState({
+    enabled: false, mode: "daily", time: "02:00", interval_hours: 24, path: "", keep_days: 14,
+  });
+  const [bkSaving, setBkSaving] = useState(false);
+  const [bkStarting, setBkStarting] = useState(false);
+  const [bkMsg, setBkMsg] = useState(null);
+
+  const loadBackup = async () => {
+    try {
+      const res = await axios.get("/api/v1/admin/db/backup", { headers: headers() });
+      setBackup(res.data);
+      return res.data;
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || "Failed to load backup settings");
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    axios.get("/api/v1/admin/db/backup", { headers: headers() })
+      .then((res) => {
+        setBackup(res.data);
+        const c = res.data.config || {};
+        setBkForm({
+          enabled: !!c.enabled,
+          mode: c.mode || "daily",
+          time: c.time || "02:00",
+          interval_hours: c.interval_hours || 24,
+          path: c.path || "",
+          keep_days: c.keep_days ?? 14,
+        });
+      })
+      .catch((err) => setError(err.response?.data?.detail || err.message || "Failed to load backup settings"));
+  }, []);
+
+  // While a dump is running keep the status panel fresh.
+  useEffect(() => {
+    if (!backup?.running) return;
+    const id = setInterval(loadBackup, 2500);
+    return () => clearInterval(id);
+  }, [backup?.running]);
+
+  const saveBackup = async () => {
+    setBkSaving(true);
+    setError(null);
+    setBkMsg(null);
+    try {
+      const res = await axios.put("/api/v1/admin/db/backup", {
+        enabled: !!bkForm.enabled,
+        mode: bkForm.mode,
+        time: bkForm.time || "02:00",
+        interval_hours: Number(bkForm.interval_hours) || 24,
+        path: bkForm.path,
+        keep_days: Number(bkForm.keep_days) || 0,
+      }, { headers: headers() });
+      setBackup(res.data);
+      setBkForm((f) => ({ ...f, path: res.data.config.path }));
+      setBkMsg({ ok: true, text: "Backup schedule saved." });
+    } catch (err) {
+      setBkMsg({ ok: false, text: err.response?.data?.detail || err.message || "Failed to save backup schedule" });
+    } finally {
+      setBkSaving(false);
+    }
+  };
+
+  const runBackupNow = async () => {
+    setBkStarting(true);
+    setBkMsg(null);
+    try {
+      await axios.post("/api/v1/admin/db/backup/run", {}, { headers: headers() });
+      setBkMsg({ ok: true, text: "Backup started — admins will be notified when it finishes." });
+      setBackup((b) => (b ? { ...b, running: true } : b));
+      setTimeout(loadBackup, 3000);
+    } catch (err) {
+      setBkMsg({ ok: false, text: err.response?.data?.detail || err.message || "Failed to start backup" });
+    } finally {
+      setBkStarting(false);
+    }
+  };
+
+  const deleteBackupFile = (f) => askConfirm({
+    title: "Delete backup file?",
+    message: `Delete "${f.name}"?\nThis cannot be undone.`,
+    confirmLabel: "Delete",
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await axios.delete("/api/v1/admin/db/backup/file", {
+          params: { name: f.name }, headers: headers(),
+        });
+        setBkMsg({ ok: true, text: "Backup file deleted." });
+        loadBackup();
+      } catch (err) {
+        setBkMsg({ ok: false, text: err.response?.data?.detail || err.message || "Failed to delete backup file" });
+      }
+    },
+  });
+
+  const fmtSize = (n) => {
+    if (!n) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let v = Number(n), i = 0;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+    return `${i === 0 ? v : v.toFixed(1)} ${units[i]}`;
+  };
+  const fmtWhen = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  };
+  const bkCfg = backup?.config;
 
   // Map layers curation (admin): which DB tables appear in the map viewer
   const [mapLayers, setMapLayers] = useState([]);
@@ -153,13 +267,15 @@ const DbSettings = () => {
   );
 
   return (
-    <div className="p-6 h-[calc(100vh-4rem)] overflow-hidden bg-slate-50">
-      <div className="h-full flex flex-col max-w-[1500px] mx-auto min-h-0">
-        <h1 className="text-2xl font-bold text-gray-800 flex items-center mb-1">
-          <Server className="w-6 h-6 mr-3 text-blue-600" />
-          Database Connection
-        </h1>
-        <p className="text-sm text-gray-500 mb-3">Admin only. Switching applies instantly to the whole system — no restart needed. The password is never displayed.</p>
+    <div className="p-6 h-[calc(100vh-4rem)] overflow-y-auto bg-slate-50">
+      <div className="max-w-[1500px] mx-auto space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800 flex items-center mb-1">
+            <Server className="w-6 h-6 mr-3 text-blue-600" />
+            Database Connection
+          </h1>
+          <p className="text-sm text-gray-500">Admin only. Switching applies instantly to the whole system — no restart needed. The password is never displayed.</p>
+        </div>
 
         {error && (
           <div className="p-3 bg-red-100 text-red-700 rounded-md flex items-center text-sm mb-3">
@@ -174,9 +290,9 @@ const DbSettings = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 flex-1 min-h-0">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* Connection panel */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col overflow-y-auto min-h-0">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col">
             {current && (
               <div className="rounded-md bg-slate-50 border border-gray-100 px-3 py-2 mb-4 text-sm flex-shrink-0">
                 <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Active now: </span>
@@ -295,6 +411,205 @@ const DbSettings = () => {
               <Save className="w-4 h-4 mr-2" />
               {savingLayers ? "Saving..." : "Save map layers"}
             </button>
+          </div>
+        </div>
+
+        {/* Scheduled backup panel */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center">
+                <DatabaseBackup className="w-5 h-5 mr-2 text-blue-600" /> Scheduled backup
+              </h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Automatic <span className="font-mono text-xs">pg_dump</span> (.bak) of{" "}
+                <span className="font-mono text-xs">{current?.db || "the active database"}</span>.
+                Admins receive a bell notification after every run.
+              </p>
+            </div>
+            <span className={"px-2.5 py-1 rounded-full text-xs font-semibold border " + (backup?.running ? "bg-blue-50 text-blue-700 border-blue-200" : bkForm.enabled ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-gray-100 text-gray-500 border-gray-200")}>
+              {backup?.running ? "Backup running…" : bkForm.enabled ? "Schedule on" : "Schedule off"}
+            </span>
+          </div>
+
+          {backup && !backup.pg_dump && (
+            <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 flex items-start">
+              <AlertTriangle className="w-4 h-4 mr-1.5 flex-shrink-0 mt-0.5" />
+              pg_dump was not found on this server. Install the PostgreSQL client tools or add pg_dump to PATH before scheduling.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Schedule form */}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!!bkForm.enabled}
+                  onChange={(e) => setBkForm((f) => ({ ...f, enabled: e.target.checked }))}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700">Run automatic backups</span>
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Frequency</label>
+                  <select
+                    value={bkForm.mode}
+                    onChange={(e) => setBkForm((f) => ({ ...f, mode: e.target.value }))}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="daily">Daily at a time</option>
+                    <option value="interval">Every N hours</option>
+                  </select>
+                </div>
+                {bkForm.mode === "daily" ? (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 mb-1 flex items-center">
+                      <Clock className="w-3.5 h-3.5 mr-1" /> Time (server local)
+                    </label>
+                    <input
+                      type="time"
+                      value={bkForm.time}
+                      onChange={(e) => setBkForm((f) => ({ ...f, time: e.target.value }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Every (hours)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={bkForm.interval_hours}
+                      onChange={(e) => setBkForm((f) => ({ ...f, interval_hours: e.target.value }))}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 flex items-center">
+                  <FolderOpen className="w-3.5 h-3.5 mr-1" /> Backup folder (server path)
+                </label>
+                <input
+                  type="text"
+                  value={bkForm.path}
+                  onChange={(e) => setBkForm((f) => ({ ...f, path: e.target.value }))}
+                  placeholder={"D:\\Backups\\GeoPortal"}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm font-mono bg-white focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">Created automatically if it does not exist. Files are written as <span className="font-mono">&lt;db&gt;_YYYYmmdd_HHMMSS.bak</span>.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Delete backups older than (days)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={bkForm.keep_days}
+                  onChange={(e) => setBkForm((f) => ({ ...f, keep_days: e.target.value }))}
+                  className="w-32 border border-gray-300 rounded px-3 py-2 text-sm bg-white focus:ring-blue-500 focus:border-blue-500"
+                />
+                <span className="text-[11px] text-gray-500 ml-2">0 = keep every backup</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  onClick={saveBackup}
+                  disabled={bkSaving || bkStarting || !bkForm.path.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {bkSaving ? "Saving..." : "Save schedule"}
+                </button>
+                <button
+                  onClick={runBackupNow}
+                  disabled={bkSaving || bkStarting || backup?.running}
+                  className="px-4 py-2 bg-slate-900 text-white hover:bg-slate-700 rounded-md text-sm font-medium transition-colors inline-flex items-center shadow-sm disabled:opacity-50"
+                  title="Run a backup right now, regardless of the schedule"
+                >
+                  {backup?.running ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Play className="w-4 h-4 mr-2" />}
+                  {backup?.running ? "Backup running..." : "Run backup now"}
+                </button>
+              </div>
+
+              {bkMsg && (
+                <p className={"text-xs font-medium flex items-start " + (bkMsg.ok ? "text-emerald-700" : "text-red-600")}>
+                  {bkMsg.ok ? <CheckCircle className="w-4 h-4 mr-1 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 mr-1 flex-shrink-0" />}
+                  {bkMsg.text}
+                </p>
+              )}
+            </div>
+
+            {/* Status + files */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="rounded-md border border-gray-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center">
+                    <CalendarClock className="w-3.5 h-3.5 mr-1" /> Next run
+                  </div>
+                  <div className="text-sm text-gray-800 mt-0.5">{bkForm.enabled ? fmtWhen(bkCfg?.next_run) : "Disabled"}</div>
+                </div>
+                <div className={"rounded-md border px-3 py-2 " + (bkCfg?.last_status === "error" ? "border-red-200 bg-red-50" : "border-gray-100 bg-slate-50")}>
+                  <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Last run</div>
+                  <div className="text-sm text-gray-800 mt-0.5">
+                    {bkCfg?.last_run ? (
+                      <span className="inline-flex items-center gap-1">
+                        {bkCfg.last_status === "ok"
+                          ? <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          : <AlertTriangle className="w-3.5 h-3.5 text-red-600" />}
+                        {fmtWhen(bkCfg.last_run)}
+                      </span>
+                    ) : "Never run"}
+                  </div>
+                  {bkCfg?.last_message && (
+                    <div className={"text-[11px] mt-0.5 break-words " + (bkCfg.last_status === "ok" ? "text-gray-500" : "text-red-700")}>
+                      {bkCfg.last_message}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-gray-600">
+                    Backup files
+                    <span className="ml-1.5 font-normal text-gray-400">
+                      {backup?.total_files || 0} file(s) · {fmtSize(backup?.total_size || 0)}
+                    </span>
+                  </span>
+                  <button onClick={loadBackup} title="Refresh list" className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="border border-gray-100 rounded-md max-h-56 overflow-y-auto divide-y divide-gray-50">
+                  {(backup?.files || []).map((f) => (
+                    <div key={f.name} className="flex items-center gap-2 px-2.5 py-1.5 text-xs hover:bg-slate-50">
+                      <span className="flex-1 font-mono text-gray-700 truncate" title={f.name}>{f.name}</span>
+                      <span className="text-gray-400 flex-shrink-0">{fmtSize(f.size)}</span>
+                      <span className="text-gray-400 flex-shrink-0 hidden sm:inline">{fmtWhen(f.mtime)}</span>
+                      <button
+                        onClick={() => deleteBackupFile(f)}
+                        className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete this backup file"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {(backup?.files || []).length === 0 && (
+                    <p className="px-3 py-6 text-center text-xs text-gray-400">
+                      {backup?.folder_exists ? "No .bak files in this folder yet." : "Backup folder does not exist yet."}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         {confirmModal}

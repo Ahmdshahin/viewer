@@ -71,6 +71,12 @@ def main() -> int:
             text = page.inner_text("body")
             report[path] = {"label": label, "loaded": len(text) > 30}
 
+        current["page"] = "db backup panel"
+        page.goto(BASE + "/db-settings")
+        page.wait_for_timeout(2200)
+        report["db_backup_panel"] = page.get_by_text("Scheduled backup", exact=True).count() > 0
+        report["db_backup_run_btn"] = page.get_by_role("button", name="Run backup now").count() > 0
+
         current["page"] = "ledger flows"
         page.goto(BASE + "/mudryia-requests")
         page.wait_for_timeout(2400)
@@ -144,6 +150,8 @@ def main() -> int:
         problems.append("login failed")
     problems += [f"{k}: page did not load" for k, v in report.items()
                  if isinstance(v, dict) and "loaded" in v and not v.get("loaded")]
+    if not report.get("db_backup_panel") or not report.get("db_backup_run_btn"):
+        problems.append("backup panel missing on the database page")
     if errors:
         problems.append("console/page errors: " + ", ".join(failed))
     if not report.get("filter_empty_option"):

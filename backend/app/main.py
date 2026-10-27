@@ -16,8 +16,14 @@ async def lifespan(app: FastAPI):
         ensure_sequences()
     except Exception as e:
         print(f"Sequence check skipped: {e}")
+    # Due-check thread for scheduled database backups (admin-configured).
+    try:
+        from app.api.backup import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        print(f"Backup scheduler skipped: {e}")
     yield
-from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports
+from app.api import auth, layers, upload, analysis, users, processor, point_processor, migrate, dbadmin, export, tiles, search, features, prefs, update_geometry, requests, mudryia_requests, lookups, notifications, reports, backup
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -44,6 +50,7 @@ app.include_router(processor.router, prefix=f"{settings.API_V1_STR}/processor", 
 app.include_router(point_processor.router, prefix=f"{settings.API_V1_STR}/point", tags=["point"])
 app.include_router(migrate.router, prefix=f"{settings.API_V1_STR}/processor/migrate", tags=["migrate"])
 app.include_router(dbadmin.router, prefix=f"{settings.API_V1_STR}/admin/db", tags=["db-admin"])
+app.include_router(backup.router, prefix=f"{settings.API_V1_STR}/admin/db", tags=["db-backup"])
 app.include_router(export.router, prefix=f"{settings.API_V1_STR}/export", tags=["export"])
 app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 app.include_router(features.router, prefix=f"{settings.API_V1_STR}/features", tags=["features"])
