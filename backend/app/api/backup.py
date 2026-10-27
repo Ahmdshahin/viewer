@@ -10,6 +10,7 @@ notification in every active admin's bell.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -43,6 +44,7 @@ _DEFAULTS = {
     "interval_hours": 24,       # interval mode
     "path": DEFAULT_FOLDER,
     "keep_days": 14,            # 0 = keep every file
+    "pg_dump_path": None,       # optional explicit pg_dump (e.g. a newer install)
     "next_run": None,
     "last_run": None,
     "last_status": None,        # "ok" | "error"
@@ -82,11 +84,43 @@ def _save(cfg: dict) -> None:
 
 # ---------- helpers ----------
 
-def _find_pg_dump() -> Optional[str]:
-    """pg_dump from PATH, else the newest PostgreSQL install under Program Files."""
+_dump_versions = {}
+_server_versions = {}
+
+
+def _no_window() -> int:
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def _version_of(text) -> Optional[tuple]:
+    m = re.search(r"(\d+)(?:\.(\d+))?", str(text or ""))
+    return (int(m.group(1)), int(m.group(2) or 0)) if m else None
+
+
+def _dump_version(path: str):
+    """Return ((major, minor), raw --version text) for a pg_dump binary."""
+    if path in _dump_versions:
+        return _dump_versions[path]
+    ver, raw = None, ""
+    try:
+        out = subprocess.run([path, "--version"], capture_output=True, text=True,
+                             timeout=20, creationflags=_no_window())
+        raw = (out.stdout or out.stderr or "").strip()
+        ver = _version_of(raw)
+        if ver:
+            raw = f"{ver[0]}.{ver[1]}"
+    except Exception:
+        pass
+    _dump_versions[path] = (ver, raw)
+    return ver, raw
+
+
+def _pg_dump_candidates() -> List[str]:
+    """pg_dump from PATH plus every PostgreSQL install under Program Files."""
+    paths = []
     found = shutil.which("pg_dump")
     if found:
-        return found
+        paths.append(found)
     bases = [
         os.environ.get("ProgramFiles"),
         os.environ.get("ProgramW6432"),
@@ -106,8 +140,82 @@ def _find_pg_dump() -> Optional[str]:
         for v in versions:
             exe = os.path.join(pgdir, v, "bin", "pg_dump.exe")
             if os.path.isfile(exe):
-                return exe
-    return None
+                paths.append(exe)
+    out, seen = [], set()
+    for p in paths:
+        full = os.path.abspath(p)
+        key = os.path.normcase(full)
+        if key not in seen:
+            seen.add(key)
+            out.append(full)
+    return out
+
+
+def _server_version():
+    """(version tuple, raw string) of the database the app is connected to."""
+    key = (settings.POSTGRES_SERVER, settings.POSTGRES_PORT, settings.POSTGRES_DB)
+    if key in _server_versions:
+        return _server_versions[key]
+    raw = None
+    try:
+        with get_engine().connect() as c:
+            raw = c.exec_driver_sql("SHOW server_version").scalar()
+    except Exception:
+        raw = None
+    result = (_version_of(raw), str(raw or "").strip() or None)
+    if result[0]:
+        _server_versions[key] = result
+    return result
+
+
+def _pick_pg_dump() -> dict:
+    """Pick the best pg_dump: newer-or-equal to the server, closest when possible.
+
+    PostgreSQL requires pg_dump to be the same major version or newer than the
+    server; a newer pg_dump can always dump an older server.
+    """
+    cfg = _load()
+    override = (cfg.get("pg_dump_path") or "").strip()
+    server_ver, server_raw = _server_version()
+
+    candidates = []
+    for path in _pg_dump_candidates():
+        ver, raw = _dump_version(path)
+        candidates.append({"path": path, "version": raw, "major": ver[0] if ver else None})
+
+    chosen = None
+    if override:
+        resolved = override if os.path.isfile(override) else (shutil.which(override) or override)
+        chosen = next((c for c in candidates
+                       if os.path.normcase(c["path"]) == os.path.normcase(os.path.abspath(resolved))), None)
+        if chosen is None and os.path.isfile(resolved):
+            ver, raw = _dump_version(resolved)
+            chosen = {"path": os.path.abspath(resolved), "version": raw,
+                      "major": ver[0] if ver else None}
+
+    if chosen is None and candidates:
+        if server_ver:
+            compatible = [c for c in candidates if c["major"] and c["major"] >= server_ver[0]]
+            chosen = min(compatible, key=lambda c: c["major"]) if compatible \
+                else max(candidates, key=lambda c: c["major"] or 0)
+        else:
+            chosen = max(candidates, key=lambda c: c["major"] or 0)
+
+    info = {
+        "pg_dump": None,
+        "pg_dump_version": None,
+        "server_version": server_raw,
+        "compatible": None,
+        "pg_dump_override": override or None,
+        "pg_dump_candidates": candidates,
+    }
+    if chosen:
+        info["pg_dump"] = chosen["path"]
+        info["pg_dump_version"] = chosen["version"]
+        if server_ver and chosen["major"]:
+            info["compatible"] = chosen["major"] >= server_ver[0]
+    return info
+
 
 
 def _parse_dt(value) -> Optional[datetime]:
@@ -231,9 +339,16 @@ def _run_backup(trigger: str) -> None:
     status, message, saved_name, saved_size = "error", "", None, None
     try:
         _ensure_folder(folder)
-        pg_dump = _find_pg_dump()
+        pick = _pick_pg_dump()
+        pg_dump = pick.get("pg_dump")
         if not pg_dump:
             raise RuntimeError("pg_dump was not found — install PostgreSQL client tools or add pg_dump to PATH")
+        if pick.get("compatible") is False:
+            raise RuntimeError(
+                f"pg_dump {pick.get('pg_dump_version')} is older than the server "
+                f"({pick.get('server_version')}) — install matching/newer PostgreSQL client tools "
+                f"or set the pg_dump path explicitly"
+            )
         stamp = started.strftime("%Y%m%d_%H%M%S")
         db = settings.POSTGRES_DB or "database"
         saved_name = f"{db}_{stamp}{FILE_SUFFIX}"
@@ -251,7 +366,7 @@ def _run_backup(trigger: str) -> None:
         env = os.environ.copy()
         env["PGPASSWORD"] = str(settings.POSTGRES_PASSWORD or "")
         env["PGCLIENTENCODING"] = "UTF8"
-        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        flags = _no_window()
         proc = subprocess.run(
             cmd, env=env, capture_output=True, text=True,
             timeout=BACKUP_TIMEOUT, creationflags=flags,
@@ -364,15 +479,22 @@ class BackupConfigIn(BaseModel):
     interval_hours: int = 24
     path: str
     keep_days: int = 14
+    pg_dump_path: Optional[str] = None
 
 
 def _state() -> dict:
     cfg = _load()
     files = _list_files(cfg["path"])
+    pick = _pick_pg_dump()
     return {
         "config": cfg,
         "running": _running.is_set(),
-        "pg_dump": _find_pg_dump(),
+        "pg_dump": pick["pg_dump"],
+        "pg_dump_version": pick["pg_dump_version"],
+        "pg_dump_override": pick["pg_dump_override"],
+        "pg_dump_compatible": pick["compatible"],
+        "pg_dump_candidates": pick["pg_dump_candidates"],
+        "server_version": pick["server_version"],
         "folder_exists": os.path.isdir(cfg["path"]),
         "files": files[:100],
         "total_files": len(files),
@@ -405,6 +527,23 @@ def save_backup(body: BackupConfigIn,
         raise HTTPException(status_code=400, detail="Backup folder is required")
     folder = _ensure_folder(body.path)
 
+    override = (body.pg_dump_path or "").strip()
+    if override:
+        resolved = override if os.path.isfile(override) else shutil.which(override)
+        if not resolved or not os.path.isfile(resolved):
+            raise HTTPException(status_code=400, detail=f"pg_dump not found at: {override}")
+        override = os.path.abspath(resolved)
+        ver, _ = _dump_version(override)
+        server_ver, _ = _server_version()
+        if ver and server_ver and ver[0] < server_ver[0]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"pg_dump {ver[0]}.{ver[1]} is older than the database server "
+                       f"{server_ver[0]}.{server_ver[1]} — pick a newer pg_dump",
+            )
+    else:
+        override = None
+
     cfg = _load()
     cfg.update({
         "enabled": bool(body.enabled),
@@ -413,7 +552,9 @@ def save_backup(body: BackupConfigIn,
         "interval_hours": int(body.interval_hours),
         "keep_days": int(body.keep_days),
         "path": folder,
+        "pg_dump_path": override,
     })
+    # Forget the cached pick when the override changes.
     cfg["next_run"] = _compute_next_run(cfg) if cfg["enabled"] else None
     with _lock:
         _save(cfg)

@@ -33,6 +33,7 @@ const DbSettings = () => {
   const [backup, setBackup] = useState(null);
   const [bkForm, setBkForm] = useState({
     enabled: false, mode: "daily", time: "02:00", interval_hours: 24, path: "", keep_days: 14,
+    pg_dump_path: "",
   });
   const [bkSaving, setBkSaving] = useState(false);
   const [bkStarting, setBkStarting] = useState(false);
@@ -61,6 +62,7 @@ const DbSettings = () => {
           interval_hours: c.interval_hours || 24,
           path: c.path || "",
           keep_days: c.keep_days ?? 14,
+          pg_dump_path: c.pg_dump_path || "",
         });
       })
       .catch((err) => setError(err.response?.data?.detail || err.message || "Failed to load backup settings"));
@@ -85,6 +87,7 @@ const DbSettings = () => {
         interval_hours: Number(bkForm.interval_hours) || 24,
         path: bkForm.path,
         keep_days: Number(bkForm.keep_days) || 0,
+        pg_dump_path: (bkForm.pg_dump_path || "").trim() || null,
       }, { headers: headers() });
       setBackup(res.data);
       setBkForm((f) => ({ ...f, path: res.data.config.path }));
@@ -432,10 +435,34 @@ const DbSettings = () => {
             </span>
           </div>
 
-          {backup && !backup.pg_dump && (
-            <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800 flex items-start">
-              <AlertTriangle className="w-4 h-4 mr-1.5 flex-shrink-0 mt-0.5" />
-              pg_dump was not found on this server. Install the PostgreSQL client tools or add pg_dump to PATH before scheduling.
+          {backup && (
+            <div className={"mb-3 px-3 py-2 rounded-md border text-xs flex flex-wrap items-center gap-x-2 gap-y-1 " +
+              (!backup.pg_dump || backup.pg_dump_compatible === false
+                ? "bg-amber-50 border-amber-200 text-amber-800"
+                : "bg-slate-50 border-gray-200 text-gray-600")}>
+              {!backup.pg_dump ? (
+                <>
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>pg_dump was not found on this server. Install the PostgreSQL client tools or add pg_dump to PATH.</span>
+                </>
+              ) : backup.pg_dump_compatible === false ? (
+                <>
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    pg_dump <b>{backup.pg_dump_version}</b> is older than the database server <b>{backup.server_version}</b>.
+                    Install PostgreSQL {String(backup.server_version || "").split(".")[0]}+ client tools, or set a newer path under Advanced.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+                  <span>pg_dump <b>{backup.pg_dump_version}</b></span>
+                  <span className="text-gray-300">·</span>
+                  <span>server <b>{backup.server_version || "unknown"}</b></span>
+                  {backup.pg_dump_compatible !== null && <span className="text-emerald-700 font-medium">compatible</span>}
+                  <span className="font-mono text-[10px] text-gray-400 break-all" title={backup.pg_dump}>{backup.pg_dump}</span>
+                </>
+              )}
             </div>
           )}
 
@@ -517,6 +544,25 @@ const DbSettings = () => {
                 />
                 <span className="text-[11px] text-gray-500 ml-2">0 = keep every backup</span>
               </div>
+
+              <details className="rounded-md border border-gray-100 bg-slate-50 px-3 py-2">
+                <summary className="text-xs font-semibold text-gray-600 cursor-pointer select-none">Advanced: pg_dump path</summary>
+                <input
+                  type="text"
+                  value={bkForm.pg_dump_path}
+                  onChange={(e) => setBkForm((f) => ({ ...f, pg_dump_path: e.target.value }))}
+                  placeholder={"(auto) C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe"}
+                  className="mt-2 w-full border border-gray-300 rounded px-3 py-2 text-xs font-mono bg-white focus:ring-blue-500 focus:border-blue-500"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Leave empty to auto-pick. pg_dump must be the <b>same major version or newer</b> than the database server — a newer pg_dump can always dump an older server.
+                </p>
+                {(backup?.pg_dump_candidates || []).length > 1 && (
+                  <p className="text-[11px] text-gray-500 mt-1 font-mono">
+                    Detected: {backup.pg_dump_candidates.map((c) => c.version || c.path).join(" · ")}
+                  </p>
+                )}
+              </details>
 
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
