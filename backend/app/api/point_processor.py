@@ -28,6 +28,7 @@ import subprocess
 from app.api import deps as _deps
 from app.api.processor import _actor, _audit, _read_conflicts, _write_conflicts, _opt_scheme, BASE_DIR
 from app.api.migrate import POINT_SQL, _connect
+from app.db.init_db import insert_with_sequence_repair
 
 # Ensure project root is in sys path to import the pipeline (location-independent)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
@@ -623,11 +624,16 @@ def migrate_run(request: MigrateRunRequest, current_user=Depends(_deps.get_curre
                         sql = POINT_SQL.format(table=POINT_POSTGIS_TABLE)
                         inserted = None
                         try:
-                            import psycopg2.extras
-                            inserted = psycopg2.extras.execute_values(cur, sql, records,
-                                                                      template="(%s, %s, %s, %s, %s)", fetch=True)
+                            inserted = insert_with_sequence_repair(
+                                cur, conn, sql, records, "(%s, %s, %s, %s, %s)")
                         except Exception as e:
-                            raise HTTPException(status_code=500, detail=f"Point migration failed: {e!r}")
+                            hint = ""
+                            if getattr(e, "pgcode", None) == "23505":
+                                hint = (f" — duplicate primary key: the id sequence behind "
+                                        f"{POINT_POSTGIS_TABLE}.id is out of sync with the table")
+                            raise HTTPException(
+                                status_code=500,
+                                detail=f"Point migration failed: {e!r}{hint}")
                         migrated = len(inserted) if inserted is not None else 0
 
                     seen = set()

@@ -203,61 +203,104 @@ def seed_initial_lookups(db: Session = None) -> None:
             db.close()
 
 
-def ensure_sequences() -> dict:
-    """Fast-forward every owned sequence past its column max (idempotent).
+def ensure_sequences(conn=None, quiet: bool = False) -> dict:
+    """Fast-forward every sequence past the max of every column using it.
 
     Restores/imports that write explicit ids leave sequences behind, which
-    later surfaces as UniqueViolation on insert. Only moves forward; reports
-    which sequences were actually behind.
+    later surfaces as UniqueViolation on insert. Sequences are looked up via
+    pg_attrdef (not only serial ownership): some tables here were built with an
+    explicit ``nextval(...)`` default, and mudryia shares points_id_seq with
+    points, so a sequence must clear the max across *all* its columns.
+
+    Only moves forward; returns the sequences that were actually behind.
     """
-    logger.info("Syncing owned sequences past column max values...")
-    conn = psycopg2.connect(
-        host=settings.POSTGRES_SERVER,
-        port=settings.POSTGRES_PORT,
-        user=settings.POSTGRES_USER,
-        password=settings.POSTGRES_PASSWORD,
-        dbname=settings.POSTGRES_DB,
-    )
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    owns_conn = conn is None
+    if owns_conn:
+        conn = psycopg2.connect(
+            host=settings.POSTGRES_SERVER,
+            port=settings.POSTGRES_PORT,
+            user=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            dbname=settings.POSTGRES_DB,
+        )
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    if not quiet:
+        logger.info("Syncing sequences past their columns' max values...")
+
     fixed = {}
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT n.nspname, c.relname, tn.nspname, t.relname, a.attname
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'a'
-                JOIN pg_class t ON t.oid = d.refobjid
+                SELECT DISTINCT tn.nspname, t.relname, a.attname, sn.nspname, s.relname
+                FROM pg_attrdef ad
+                JOIN pg_class t ON t.oid = ad.adrelid
                 JOIN pg_namespace tn ON tn.oid = t.relnamespace
-                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
-                WHERE c.relkind = 'S'
+                JOIN pg_attribute a ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
+                JOIN pg_depend dep ON dep.classid = 'pg_attrdef'::regclass AND dep.objid = ad.oid
+                JOIN pg_class s ON s.oid = dep.refobjid AND s.relkind = 'S'
+                JOIN pg_namespace sn ON sn.oid = s.relnamespace
+                WHERE dep.deptype IN ('a', 'n')
             """)
-            owned = cur.fetchall()
-            for seq_schema, seq, tbl_schema, tbl, col in owned:
+            refs = {}
+            for tbl_schema, tbl, col, seq_schema, seq in cur.fetchall():
+                refs.setdefault((seq_schema, seq), []).append((tbl_schema, tbl, col))
+
+            for (seq_schema, seq), columns in refs.items():
                 try:
                     cur.execute(
                         "SELECT last_value FROM %s.%s"
                         % (quote_ident(seq_schema, conn), quote_ident(seq, conn)))
                     last = cur.fetchone()[0]
-                    cur.execute(
-                        "SELECT COALESCE(MAX(%s), 0) FROM %s.%s"
-                        % (quote_ident(col, conn), quote_ident(tbl_schema, conn),
-                           quote_ident(tbl, conn)))
-                    maximum = cur.fetchone()[0]
-                    if maximum is not None and last < maximum:
+                    maximum = 0
+                    for tbl_schema, tbl, col in columns:
                         cur.execute(
-                            "SELECT setval(%s, %s)",
-                            ("%s.%s" % (seq_schema, seq), maximum))
-                        fixed["%s.%s" % (tbl_schema, tbl)] = (last, maximum)
+                            "SELECT COALESCE(MAX(%s), 0) FROM %s.%s"
+                            % (quote_ident(col, conn), quote_ident(tbl_schema, conn),
+                               quote_ident(tbl, conn)))
+                        maximum = max(maximum, cur.fetchone()[0] or 0)
+                    if last < maximum:
+                        cur.execute(
+                            "SELECT setval(%s::regclass, %s)",
+                            ("%s.%s" % (quote_ident(seq_schema, conn),
+                                        quote_ident(seq, conn)), maximum))
+                        used_by = ", ".join("%s.%s" % (t, c) for _, t, c in columns)
+                        fixed[used_by] = (last, maximum)
                 except Exception as e:
                     logger.warning("Skipping sequence %s.%s: %s", seq_schema, seq, e)
     finally:
-        conn.close()
-    if fixed:
-        logger.info("Sequences fast-forwarded: %s", fixed)
-    else:
-        logger.info("All sequences already in sync.")
+        if owns_conn:
+            conn.close()
+    if not quiet:
+        if fixed:
+            logger.info("Sequences fast-forwarded: %s", fixed)
+        else:
+            logger.info("All sequences already in sync.")
     return fixed
+
+
+def insert_with_sequence_repair(cur, conn, sql: str, rows, template: str):
+    """execute_values that heals a behind sequence and retries once.
+
+    A concurrent import or a restore with explicit ids can leave the target
+    sequence below the table max between the boot check and this insert. The
+    attempt runs inside a savepoint so the duplicate-key failure can be undone
+    without discarding work already done earlier in the caller's transaction.
+    """
+    import psycopg2.extras
+
+    cur.execute("SAVEPOINT mv_seq_repair")
+    try:
+        out = psycopg2.extras.execute_values(cur, sql, rows, template=template, fetch=True)
+        cur.execute("RELEASE SAVEPOINT mv_seq_repair")
+        return out
+    except psycopg2.errors.UniqueViolation:
+        cur.execute("ROLLBACK TO SAVEPOINT mv_seq_repair")
+        fixed = ensure_sequences(conn)
+        logger.warning("Duplicate id on insert — sequences repaired: %s", fixed)
+        out = psycopg2.extras.execute_values(cur, sql, rows, template=template, fetch=True)
+        cur.execute("RELEASE SAVEPOINT mv_seq_repair")
+        return out
+
 
 
 def init_db() -> None:

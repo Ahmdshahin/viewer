@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.api.deps import get_current_active_editor, get_db
 from app.api.requests import sync_base_map_bulk
+from app.db.init_db import insert_with_sequence_repair
 from app.db.models import User
 
 router = APIRouter()
@@ -306,7 +307,8 @@ def migrate_run(request: MigrateRunRequest, current_user: User = Depends(get_cur
                         # inject feddan constant (execute_values handles only the VALUES template)
                         sql = sql.replace("%(feddan)s", str(settings.FEDDAN_CONSTANT))
                     # RETURNING gives actual inserted rows (dumped parts expand one input row into many)
-                    inserted = psycopg2.extras.execute_values(cur, sql, records, template="(%s, %s, %s, %s, %s)", fetch=True)
+                    inserted = insert_with_sequence_repair(
+                        cur, conn, sql, records, "(%s, %s, %s, %s, %s)")
                     migrated[rkey] = len(inserted) if inserted is not None else 0
                 else:
                     migrated[rkey] = 0
